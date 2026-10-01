@@ -152,10 +152,8 @@ struct NotchQuickAccessView: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .topTrailing) {
-                    // A Claude Code request is waiting on the AI page.
-                    if action == .module(.agents), ClaudeApprovalService.shared.pending != nil {
-                        Circle().fill(.orange).frame(width: 8, height: 8).allowsHitTesting(false)
-                    }
+                    // A session waits on the AI page: a request, or a finished turn.
+                    if action == .module(.agents) { NotchAgentNeedsYouBadge(size: 8) }
                 }
                 .contentShape(Circle())
         }

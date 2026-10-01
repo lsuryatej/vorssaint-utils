@@ -38,6 +38,7 @@ enum NotchAgentTests {
         agentDefaults(suite)
         formatting(suite)
         AgentUsageEventDeliveryTests.run(suite)
+        AgentSessionBoardTests.run(suite)
         NotchAgentAnimationTests.run { suite.expect($0, $1) }
     }
 
@@ -447,6 +448,27 @@ enum NotchAgentTests {
         _ = feed(claudeUser(#"<command-name>/model</command-name>"#))
         _ = feed(line(#"{"type":"user","message":{"content":"<local-command-stdout>Set model</local-command-stdout>"}}"#))
         suite.expect(store.live.isEmpty, "a local command never leaves a turn working")
+        // Claude Code 2.1.280 writes the output as a system line, not a user one.
+        var cleared = AgentLogState()
+        let clear = AgentLogParser.parseClaude(claudeUser("<command-name>/clear</command-name>\\n<command-message>clear</command-message>"),
+                                               state: &cleared, now: now)
+        let output = AgentLogParser.parseClaude(line(#"{"type":"system","subtype":"local_command","content":"<local-command-stdout></local-command-stdout>"}"#),
+                                                state: &cleared, now: now)
+        suite.expect(clear.isEmpty && output.isEmpty && !cleared.turnOpen,
+                     "a local command whose output is a system line never opens a turn")
+        _ = feed(claudeUser())
+        _ = feed(claudeUser("<command-name>/compact</command-name>"))
+        suite.expect(store.live.isEmpty, "a local command typed while a turn reads as open ends it")
+        var interrupted = AgentLogState(turnOpen: true)
+        suite.expect(AgentLogParser.parseClaude(line(#"{"type":"user","message":{"content":"[Request interrupted by user]"}}"#),
+                                                state: &interrupted, now: now)
+                        == [.turnEnded(nil, completed: false, duration: nil, failed: false)],
+                     "an interruption is not an error")
+        var errored = AgentLogState(turnOpen: true)
+        let failure = AgentLogParser.parseClaude(claudeAssistant(model: "<synthetic>", stop: "stop_sequence"), state: &errored, now: now)
+        suite.expect(failure.contains(.turnEnded(AgentTimestamp.parse("2026-09-21T23:42:45.078Z"), completed: false,
+                                                 duration: nil, failed: true)),
+                     "an error written in place of a reply ends the turn as failed")
         _ = feed(claudeUser())
         _ = feed(claudeAssistant(id: "msg_5", request: "req_5", stop: "tool_use", time: "2026-09-21T23:40:10.000Z"))
         let structured = feed(line(#"{"type":"user","timestamp":"2026-09-21T23:40:15.000Z","sessionId":"s1","message":{"role":"user","content":[{"type":"tool_result","content":"Structured output provided successfully"}]},"toolUseResult":"Structured output provided successfully","toolEndsTurn":true}"#))
@@ -2544,7 +2566,7 @@ enum NotchAgentTests {
         func write(_ name: String, _ text: String) {
             FileManager.default.createFile(atPath: folder.appending(path: name).path, contents: Data(text.utf8))
         }
-        write("100.json", #"{"pid":100,"sessionId":"quit","cwd":"/p"}"#)
+        write("100.json", #"{"pid":100,"sessionId":"quit","cwd":"/p/app","name":"app-1","status":"busy","startedAt":1790000000000,"statusUpdatedAt":1790000060000}"#)
         write("200.json", #"{"pid":200,"sessionId":"killed"}"#)
         write("300.json", #"{"pid":300,"sessionId":"killed"}"#)
         write("300.abc.key", "{}")
@@ -2552,8 +2574,15 @@ enum NotchAgentTests {
         write(".heartbeat", "1")
         let running: Set<Int32> = [100, 300]
         var registry = AgentSessionRegistry.read([folder, folder.appending(path: "missing")]) { running.contains($0) }
-        suite.expect(registry == AgentSessionRegistry(running: ["quit", "killed"], ended: [], complete: true, listed: true),
+        suite.expect(registry.running == ["quit", "killed"] && registry.ended.isEmpty && registry.complete && registry.listed,
                      "a session with a running process reads as running, even beside a killed one's record, and a container's record proves nothing")
+        let quitRecord = AgentSessionRecord(pid: 100, session: "quit", cwd: "/p/app", name: "app-1", status: .busy,
+                                            started: Date(timeIntervalSince1970: 1_790_000_000),
+                                            statusChanged: Date(timeIntervalSince1970: 1_790_000_060))
+        suite.expect(registry.records["quit"] == quitRecord && registry.records["killed"]?.pid == 300
+                        && registry.records["killed"]?.status == nil && registry.records["contained"] == nil
+                        && registry.records.count == 2,
+                     "a running session keeps its folder, name, status and times; one without a status proves nothing")
         write("400.json", #"{"pid":"#)
         registry = AgentSessionRegistry.read([folder]) { $0 == 100 }
         suite.expect(registry.running == ["quit"] && registry.ended == ["killed"] && !registry.complete,

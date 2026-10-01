@@ -836,7 +836,8 @@ final class NotchService: ObservableObject {
         let providers = NotchAgentSupport.providers().filter(usage.seen.contains)
         guard !providers.isEmpty else { return 0 }
         return NotchAgentSupport.contentHeight(NotchAgentSupport.rows(
-            NotchAgentSupport.tiles(cards: NotchAgentSupport.cards(), providers: providers), width: width))
+            NotchAgentSupport.tiles(cards: NotchAgentSupport.cards(), providers: providers), width: width),
+            boardRows: usage.sessions.count)
     }
     var expandedGeometry: NotchGeometry {
         var result = geometry
