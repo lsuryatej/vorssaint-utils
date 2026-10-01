@@ -45,6 +45,9 @@ enum AgentSessionBoardTests {
         let rows = busy.sessions(now: now)
         let a = rows.first { $0.id == "a" }, b = rows.first { $0.id == "b" }
         suite.expect(a?.cwd == "/code/a" && a?.pid == 1, "a row keeps its process and folder for the jump")
+        suite.expect(AgentSessionBoard.row(for: approval(transcript: "/p/a.jsonl"), in: rows)?.pid == 1
+                     && AgentSessionBoard.row(for: approval(transcript: "/p/z.jsonl"), in: rows) == nil,
+                     "an approval's header jumps through its board row")
         suite.expect(rows.count == 2 && a?.activity == .working && a?.model == "claude-opus-5-5" && a?.cost == 0.5
                         && a?.name == "a-1" && a?.project == "a" && a?.pid == 1,
                      "a busy session works with its turn's model and cost")

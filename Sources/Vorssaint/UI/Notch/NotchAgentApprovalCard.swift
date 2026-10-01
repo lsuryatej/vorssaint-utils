@@ -8,6 +8,8 @@ import SwiftUI
 /// allow, AskUserQuestion questions to answer, or an ExitPlanMode plan.
 struct NotchAgentApprovalCard: View {
     let request: ClaudeApprovalRequest
+    /// The board row the request came from; its header opens that terminal.
+    var session: AgentSessionRow? = nil
     @ObservedObject private var l10n = L10n.shared
     /// Per question: the chosen option indices, whether "Other" is open, and its text.
     @State private var chosen: [Set<Int>] = []
@@ -20,8 +22,7 @@ struct NotchAgentApprovalCard: View {
     var body: some View {
         NotchAgentCardChrome {
             VStack(alignment: .leading, spacing: 6) {
-                NotchAgentCardHeader(title: [request.project, request.toolName].filter { !$0.isEmpty }.joined(separator: " · "),
-                                     symbol: "checkmark.shield", tint: .orange, provider: request.agent) { EmptyView() }
+                header
                 switch request.kind {
                 case .tool: tool
                 case .questions(let questions): ask(questions)
@@ -31,6 +32,18 @@ struct NotchAgentApprovalCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(format: label, product))
+    }
+
+    @ViewBuilder private var header: some View {
+        let header = NotchAgentCardHeader(title: [request.project, request.toolName].filter { !$0.isEmpty }.joined(separator: " · "),
+                                          symbol: "checkmark.shield", tint: .orange, provider: request.agent) { EmptyView() }
+        if let session, AgentSessionBoard.canJump(session) {
+            // The island stays open so the card can still be answered.
+            Button { AgentJump.open(session, collapse: false) } label: { header.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+        } else {
+            header
+        }
     }
 
     private var label: String {

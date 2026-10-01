@@ -148,6 +148,17 @@ enum AgentSessionBoard {
         }
     }
 
+    /// The board row an approval came from, if the board lists it.
+    static func row(for approval: ClaudeApprovalRequest, in rows: [AgentSessionRow]) -> AgentSessionRow? {
+        rows.first { matches($0, approval) }
+    }
+
+    /// Whether a click can find the row's process: Claude rows carry a pid,
+    /// Codex rows find theirs from the rollout.
+    static func canJump(_ row: AgentSessionRow) -> Bool {
+        row.pid != nil || row.provider == .codex
+    }
+
     /// The transcript names the session; without one, the folder does.
     private static func matches(_ row: AgentSessionRow, _ approval: ClaudeApprovalRequest) -> Bool {
         guard row.provider == approval.agent else { return false }
