@@ -25,7 +25,34 @@ enum AgentTerminalKind: Equatable {
     }
 }
 
+/// A running `codex` process, as the kernel reports it.
+struct AgentSessionProcess: Equatable {
+    let pid: Int32
+    let cwd: String?
+    let started: Date
+}
+
 enum AgentJumpSupport {
+    /// The folder and start time of a Codex rollout, from its first line.
+    static func codexMeta(firstLine: Data) -> (cwd: String, started: Date)? {
+        guard let json = (try? JSONSerialization.jsonObject(with: firstLine)) as? [String: Any],
+              json["type"] as? String == "session_meta",
+              let cwd = (json["payload"] as? [String: Any])?["cwd"] as? String, !cwd.isEmpty,
+              let started = AgentLogParser.timestamp(json["timestamp"])
+        else { return nil }
+        return (cwd, started)
+    }
+
+    /// Codex keeps no pid, so the process in the rollout's folder that started
+    /// closest to it wins.
+    // ponytail: two codex in one folder resuming the same rollout are indistinguishable
+    // without a pid in the rollout.
+    static func codexProcess(cwd: String, started: Date, among processes: [AgentSessionProcess]) -> AgentSessionProcess? {
+        let folder = (cwd as NSString).standardizingPath
+        return processes.filter { $0.cwd.map { ($0 as NSString).standardizingPath } == folder }
+            .min { abs($0.started.timeIntervalSince(started)) < abs($1.started.timeIntervalSince(started)) }
+    }
+
     /// `devname` output such as `ttys002`; anything else never reaches a script.
     static func isTTYName(_ name: String) -> Bool {
         name.range(of: #"^tty[a-z]?[0-9A-Za-z]{1,8}$"#, options: .regularExpression) != nil

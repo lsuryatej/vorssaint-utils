@@ -184,5 +184,30 @@ enum AgentSessionBoardTests {
                      && AgentJumpSupport.vsCodeWindow(titles: titles, cwd: "/code/vorssaint-utils/.claude/worktrees/feat-x") == 2
                      && AgentJumpSupport.vsCodeWindow(titles: titles, cwd: "/code/none") == nil,
                      "the window naming the deepest folder of the session wins")
+
+        let meta = AgentJumpSupport.codexMeta(firstLine: Data(#"""
+            {"timestamp":"2026-10-01T10:00:00.000Z","type":"session_meta","payload":{"id":"r1","cwd":"/Users/me/proj"}}
+            """#.utf8))
+        suite.expect(meta?.cwd == "/Users/me/proj" && meta?.started == AgentTimestamp.parse("2026-10-01T10:00:00.000Z"),
+                     "a rollout's first line gives its folder and start")
+        suite.expect(AgentJumpSupport.codexMeta(firstLine: Data(#"{"timestamp":"2026-10-01T10:00:00Z","type":"turn_context","payload":{"cwd":"/p"}}"#.utf8)) == nil
+                     && AgentJumpSupport.codexMeta(firstLine: Data("not json".utf8)) == nil,
+                     "only a session_meta line names the rollout")
+        let at = meta?.started ?? start
+        let other = AgentSessionProcess(pid: 1, cwd: "/Users/me/other", started: at)
+        let fresh = AgentSessionProcess(pid: 2, cwd: "/Users/me/proj", started: at.addingTimeInterval(-3))
+        let resumed = AgentSessionProcess(pid: 3, cwd: "/Users/me/proj/", started: at.addingTimeInterval(7200))
+        suite.expect(AgentJumpSupport.codexProcess(cwd: "/Users/me/proj", started: at, among: [other, resumed, fresh]) == fresh,
+                     "the codex in the rollout's folder that started closest wins")
+        suite.expect(AgentJumpSupport.codexProcess(cwd: "/Users/me/proj", started: at, among: [other, resumed]) == resumed,
+                     "a resumed session started long after its rollout still matches")
+        suite.expect(AgentJumpSupport.codexProcess(cwd: "/Users/me/proj", started: at, among: [other]) == nil,
+                     "no codex in the folder, no jump")
+
+        // claude → fish → Code Helper → Code, as seen with VS Code here; only Code is a regular app.
+        let parents: [pid_t: pid_t] = [72857: 72000, 72000: 33448, 33448: 33400, 33400: 1]
+        suite.expect(MixerRoutingSupport.owningRegularAppPid(responsiblePid: 72857, isRegularApp: { $0 == 33400 },
+                                                             parentPid: { parents[$0] ?? 0 }) == 33400,
+                     "a VS Code terminal session resolves past Code Helper to Code")
     }
 }
