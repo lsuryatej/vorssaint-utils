@@ -3,6 +3,7 @@
 
 import AppKit
 
+ClaudeApprovalRelay.runIfRequestedAndExit()
 SuperKeyMappingGuard.runIfRequestedAndExit()
 Defaults.register()
 NotchControlItem.keyboardLightIsSupported = { BrightnessService.keyboardLightIsSupported }

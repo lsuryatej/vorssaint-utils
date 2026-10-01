@@ -7,6 +7,7 @@ import SwiftUI
 struct NotchAgentsView: View {
     let size: CGSize
     @ObservedObject private var usage = AgentUsageService.shared
+    @ObservedObject private var approvals = ClaudeApprovalService.shared
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(DefaultsKey.notchAgentsPeriod) private var period = AgentPeriod.today.rawValue
     @AppStorage(DefaultsKey.notchAgentsLimitDisplay) private var display = NotchAgentLimitDisplay.remaining.rawValue
@@ -35,7 +36,10 @@ struct NotchAgentsView: View {
 
     var body: some View {
         Group {
-            if !usage.snapshot.loaded {
+            if let request = approvals.pending {
+                NotchAgentApprovalCard(request: request)
+                    .frame(height: min(size.height, NotchAgentSupport.approvalCardHeight))
+            } else if !usage.snapshot.loaded {
                 VStack(spacing: 10) {
                     ProgressView().controlSize(.small)
                     Text(text.loading).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -885,19 +889,64 @@ private struct NotchAgentResetsCard: View {
 
     private func pill(_ title: String, symbol: String? = nil, prominent: Bool = true,
                       action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 3) {
-                if let symbol { Image(systemName: symbol).imageScale(.small) }
-                // A narrow island shrinks a long label before cutting it.
-                Text(title).lineLimit(1).minimumScaleFactor(0.8)
-            }
-            .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(prominent ? AnyShapeStyle(tint) : AnyShapeStyle(.white.opacity(0.85)))
-            .padding(.horizontal, 9)
-            .frame(height: 20)
-            .background(prominent ? tint.opacity(0.2) : .white.opacity(0.1), in: Capsule(style: .continuous))
-            .contentShape(Capsule(style: .continuous))
+        notchAgentPill(title, symbol: symbol, prominent: prominent, tint: tint, action: action)
+    }
+}
+
+private func notchAgentPill(_ title: String, symbol: String? = nil, prominent: Bool = true, tint: Color,
+                            action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+        HStack(spacing: 3) {
+            if let symbol { Image(systemName: symbol).imageScale(.small) }
+            // A narrow island shrinks a long label before cutting it.
+            Text(title).lineLimit(1).minimumScaleFactor(0.8)
         }
-        .buttonStyle(NotchButtonStyle(cornerRadius: 10))
+        .font(.system(size: 10.5, weight: .semibold))
+        .foregroundStyle(prominent ? AnyShapeStyle(tint) : AnyShapeStyle(.white.opacity(0.85)))
+        .padding(.horizontal, 9)
+        .frame(height: 20)
+        .background(prominent ? tint.opacity(0.2) : .white.opacity(0.1), in: Capsule(style: .continuous))
+        .contentShape(Capsule(style: .continuous))
+    }
+    .buttonStyle(NotchButtonStyle(cornerRadius: 10))
+}
+
+/// A Claude Code permission request, in place of the page until it is
+/// answered here, answered in the terminal, or handed back to the terminal.
+private struct NotchAgentApprovalCard: View {
+    let request: ClaudeApprovalRequest
+    @ObservedObject private var l10n = L10n.shared
+
+    private var text: ClaudeApprovalStrings { FeatureStrings.claudeApprovals(l10n.language) }
+
+    var body: some View {
+        NotchAgentCardChrome {
+            VStack(alignment: .leading, spacing: 6) {
+                NotchAgentCardHeader(title: "\(request.project) · \(request.toolName)", symbol: "checkmark.shield",
+                                     tint: .orange, provider: .claude) { EmptyView() }
+                Text(request.summary)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .help(request.summary)
+                Spacer(minLength: 0)
+                HStack(spacing: 6) {
+                    Spacer(minLength: 0)
+                    notchAgentPill(text.deny, prominent: false, tint: .orange) { answer(.deny) }
+                    if request.canAlways {
+                        notchAgentPill(text.always, prominent: false, tint: .orange) { answer(.always) }
+                            .help(text.alwaysHelp)
+                    }
+                    notchAgentPill(text.allow, tint: .orange) { answer(.allow) }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(text.requestLabel)
+    }
+
+    private func answer(_ decision: ClaudeApprovalDecision) {
+        ClaudeApprovalService.shared.answer(decision, to: request)
     }
 }

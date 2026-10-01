@@ -229,6 +229,8 @@ enum NotchAgentSupport {
     // MARK: Layout
 
     static let spacing: CGFloat = 10
+    /// A Claude Code request shows alone, so the page is only as tall as its card.
+    static let approvalCardHeight: CGFloat = 96
     static let cardHeight: CGFloat = 96
     static let chartHeight: CGFloat = 118
     /// Below this width every card takes a row of its own.
