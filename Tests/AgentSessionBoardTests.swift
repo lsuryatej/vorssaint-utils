@@ -32,6 +32,7 @@ enum AgentSessionBoardTests {
     }
 
     static func run(_ suite: TestSuite) {
+        jump(suite)
         let now = start.addingTimeInterval(600)
         let tokens = AgentTokens(input: 100, output: 20)
         let usage = AgentUsageRecord(provider: .claude, date: start.addingTimeInterval(5), model: "claude-opus-5-5",
@@ -43,6 +44,7 @@ enum AgentSessionBoardTests {
                    file: "/p/a.jsonl", provider: .claude, tracksTurns: true, modified: start, now: start)
         let rows = busy.sessions(now: now)
         let a = rows.first { $0.id == "a" }, b = rows.first { $0.id == "b" }
+        suite.expect(a?.cwd == "/code/a" && a?.pid == 1, "a row keeps its process and folder for the jump")
         suite.expect(rows.count == 2 && a?.activity == .working && a?.model == "claude-opus-5-5" && a?.cost == 0.5
                         && a?.name == "a-1" && a?.project == "a" && a?.pid == 1,
                      "a busy session works with its turn's model and cost")
@@ -155,5 +157,32 @@ enum AgentSessionBoardTests {
                      "the Now card grows to four sessions, then scrolls")
         suite.expect(NotchAgentSupport.contentHeight([[live], [spend]], boardRows: 4) == 136 + NotchAgentSupport.spacing + 96,
                      "the page grows with the Now card")
+    }
+
+    /// A click selects the tab by tty or folder; nothing unchecked reaches a script.
+    private static func jump(_ suite: TestSuite) {
+        suite.expect(AgentTerminalKind(bundleIdentifier: "com.apple.Terminal") == .terminal
+                     && AgentTerminalKind(bundleIdentifier: "com.mitchellh.ghostty") == .ghostty
+                     && AgentTerminalKind(bundleIdentifier: "com.microsoft.VSCode") == .vscode
+                     && AgentTerminalKind(bundleIdentifier: nil) == .other, "terminal kinds from bundle ids")
+        suite.expect(AgentJumpSupport.isTTYName("ttys002") && AgentJumpSupport.isTTYName("ttyp3")
+                     && !AgentJumpSupport.isTTYName(#"ttys002" then do shell script "x"#)
+                     && !AgentJumpSupport.isTTYName(""), "only device names pass as a tty")
+        let terminal = AgentJumpSupport.script(for: .terminal, tty: "ttys002", cwd: nil) ?? ""
+        suite.expect(terminal.contains(#""/dev/ttys002""#) && terminal.contains(#"return "no""#),
+                     "the Terminal script matches the tty")
+        suite.expect(AgentJumpSupport.script(for: .iTerm2, tty: #"x" & "y"#, cwd: nil) == nil,
+                     "a bad tty builds no script")
+        let ghostty = AgentJumpSupport.script(for: .ghostty, tty: nil, cwd: #"/a "b""#) ?? ""
+        suite.expect(ghostty.contains(#"working directory is "/a \"b\"""#), "the Ghostty folder is escaped")
+        suite.expect(AgentJumpSupport.script(for: .vscode, tty: "ttys002", cwd: "/a") == nil,
+                     "VS Code is raised by window, not scripted")
+        let titles = ["NotchAgentsView.swift — vorssaint-utils — Visual Studio Code", "README.md — other — Visual Studio Code",
+                      "● main.swift — feat-x — Visual Studio Code"]
+        suite.expect(AgentJumpSupport.vsCodeWindow(titles: titles, cwd: "/code/other") == 1
+                     && AgentJumpSupport.vsCodeWindow(titles: titles, cwd: "/code/vorssaint-utils/Sources/Vorssaint") == 0
+                     && AgentJumpSupport.vsCodeWindow(titles: titles, cwd: "/code/vorssaint-utils/.claude/worktrees/feat-x") == 2
+                     && AgentJumpSupport.vsCodeWindow(titles: titles, cwd: "/code/none") == nil,
+                     "the window naming the deepest folder of the session wins")
     }
 }

@@ -501,7 +501,14 @@ private struct NotchAgentLiveCard: View {
 
     private func list(_ rows: [AgentSessionRow], now: Date) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(rows) { row($0, now: now) }
+            ForEach(rows) { session in
+                if session.pid != nil {
+                    Button { AgentJump.open(session) } label: { row(session, now: now).contentShape(Rectangle()) }
+                        .buttonStyle(.plain)
+                } else {
+                    row(session, now: now)
+                }
+            }
         }
     }
 

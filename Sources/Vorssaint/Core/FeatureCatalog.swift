@@ -336,7 +336,9 @@ extension AppFeature {
         case .notchLyrics, .notchQueue: return []
         // Session logs and the saved limits sit in the home folder, outside
         // every protected location, and no sign-in or keychain item is used.
-        case .notchAgents: return []
+        // Only a click on a board session sends an Apple Event, to select its
+        // terminal tab; other terminals are just activated.
+        case .notchAgents: return [.automationTerminal]
         // It only draws, and hears of what happens from the island itself.
         case .notchMascot: return []
         // A hook in Claude Code's own settings file and a socket in the app's

@@ -1493,6 +1493,8 @@ enum FeatureCatalogTests {
         suite.expect(AppFeature.quickToggles.permissions == [.automationFinder],
                "the quick toggles need no permission beyond the Trash's Finder ask")
         suite.expect(activeSet(.automationTerminal) == [.homebrew], "homebrew drives the Terminal")
+        suite.expect(activeSet(.automationTerminal, on: [DefaultsKey.notchAgentsEnabled]) == [.homebrew, .notchAgents],
+               "the AI page selects a session's Terminal tab")
         suite.expect(activeSet(.appManagement) == [.homebrew, .appUpdates, .diskImageInstaller],
                "package, update and disk-image installs declare App Management access")
         suite.expect(AppFeature.homebrew.permissions == [.automationTerminal, .appManagement],

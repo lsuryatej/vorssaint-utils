@@ -45,6 +45,8 @@ struct AgentSessionRow: Equatable, Identifiable {
     /// The name Claude Code gives the session.
     let name: String?
     let pid: Int32?
+    /// The folder the process runs in, from its record.
+    let cwd: String?
     /// When the turn began, else when the session did.
     let started: Date
     /// When the current activity began.
@@ -106,7 +108,7 @@ enum AgentSessionBoard {
                 rows.append(AgentSessionRow(
                     id: record.session, provider: .claude,
                     project: AgentLogParser.projectName(record.cwd).isEmpty ? known?.project ?? "" : AgentLogParser.projectName(record.cwd),
-                    name: record.name.isEmpty ? nil : record.name, pid: record.pid,
+                    name: record.name.isEmpty ? nil : record.name, pid: record.pid, cwd: record.cwd,
                     started: (turn ?? quiet)?.started ?? opened, since: since,
                     model: working?.model ?? "", tokens: working?.tokens ?? AgentTokens(), cost: working?.cost ?? 0,
                     activity: activity))
@@ -122,7 +124,7 @@ enum AgentSessionBoard {
             let (activity, since) = storeActivity(turn: turn, quiet: quiet, ended: ended, fallback: known.started)
             rows.append(AgentSessionRow(
                 id: known.provider == .claude ? session : file, provider: known.provider, project: known.project,
-                name: nil, pid: nil, started: known.started, since: since, model: known.model, tokens: known.tokens,
+                name: nil, pid: nil, cwd: nil, started: known.started, since: since, model: known.model, tokens: known.tokens,
                 cost: known.cost, activity: activity))
         }
         return rows
