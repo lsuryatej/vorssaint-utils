@@ -11,7 +11,16 @@ enum ClaudeApprovalTests {
         transcript(suite)
         service(suite)
         installer(suite)
+        questionsAndPlans(suite)
+        codex(suite)
+        strings(suite)
     }
+
+    /// Captured from Claude Code 2.1.287, trimmed to the fields the app reads.
+    private static let askPayload = #"{"session_id":"s","transcript_path":"/tmp/t.jsonl","cwd":"/Users/me/code/proj","permission_mode":"default","hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which color?","header":"Color","options":[{"label":"Red","description":"The color red"},{"label":"Blue","description":"The color blue"}],"multiSelect":false},{"question":"Which sizes?","header":"Sizes","options":[{"label":"Small","description":"Small size"},{"label":"Large","description":"Large size"}],"multiSelect":true}]}}"#
+    private static let planPayload = ##"{"session_id":"s","transcript_path":"/tmp/t.jsonl","cwd":"/Users/me/code/proj","permission_mode":"plan","hook_event_name":"PermissionRequest","tool_name":"ExitPlanMode","tool_input":{"plan":"# Create hello file\n\n1. Create `hello.txt` with the content `hi`.\n2. Reply with DONE.\n","planFilePath":"/Users/me/.claude/plans/p.md"},"permission_suggestions":null}"##
+    /// From the Codex hooks documentation; never captured from a real session.
+    private static let codexPayload = #"{"session_id":"c","transcript_path":"/Users/me/.codex/sessions/r.jsonl","cwd":"/Users/me/code/proj","hook_event_name":"PermissionRequest","model":"gpt-5","turn_id":"t1","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}"#
 
     /// Captured from Claude Code 2.1.286, trimmed to the fields the app reads.
     private static func payload(command: String = "python3 -c 'print(42)'",
@@ -398,6 +407,230 @@ enum ClaudeApprovalTests {
                 suite.expect(!files.contains { $0.hasPrefix("settings.json.bak") }
                              && (try? Data(contentsOf: service.settingsURL)) == Data("{ broken".utf8),
                              "nothing is backed up or written")
+            }
+        }
+    }
+
+    // MARK: Questions and plans
+
+    private static func questionsAndPlans(_ suite: TestSuite) {
+        let ask = ClaudeApprovalSupport.parseRequest(Data(askPayload.utf8))
+        let plan = ClaudeApprovalSupport.parseRequest(Data(planPayload.utf8))
+        func decision(_ choice: ClaudeApprovalDecision, _ request: ClaudeApprovalRequest) -> [String: Any] {
+            let output = json(ClaudeApprovalSupport.reply(choice, for: request))["hookSpecificOutput"] as? [String: Any]
+            return output?["decision"] as? [String: Any] ?? [:]
+        }
+        suite.run("parsesAskUserQuestion") {
+            guard case .questions(let questions)? = ask?.kind else { return suite.expect(false, "AskUserQuestion becomes questions") }
+            suite.expect(questions.count == 2 && questions[0].text == "Which color?" && questions[0].header == "Color"
+                         && !questions[0].multiSelect && questions[1].multiSelect,
+                         "each question keeps its text, header and selection mode")
+            suite.expect(questions[0].options == [.init(label: "Red", description: "The color red"),
+                                                  .init(label: "Blue", description: "The color blue")],
+                         "options keep their label and description")
+            let strings = #"{"hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Q","options":["A","B"]}]}}"#
+            guard case .questions(let plain)? = ClaudeApprovalSupport.parseRequest(Data(strings.utf8))?.kind
+            else { return suite.expect(false, "plain string options are accepted") }
+            suite.expect(plain.first?.options.map(\.label) == ["A", "B"] && plain.first?.multiSelect == false,
+                         "plain string options are accepted, single select by default")
+        }
+        suite.run("askUserQuestionWithoutQuestionsIsReleased") {
+            for input in [#"{}"#, #"{"questions":[]}"#, #"{"questions":[{"question":"Q","options":[]}]}"#,
+                          #"{"questions":[{"options":["A"]}]}"#] {
+                let payload = #"{"hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_input":"# + input + "}"
+                suite.expect(ClaudeApprovalSupport.parseRequest(Data(payload.utf8)) == nil,
+                             "an unreadable question goes back to the terminal, never as JSON: \(input)")
+            }
+        }
+        suite.run("parsesExitPlanMode") {
+            guard case .plan(let text)? = plan?.kind else { return suite.expect(false, "ExitPlanMode becomes a plan") }
+            suite.expect(text.hasPrefix("# Create hello file\n") && ClaudeApprovalSupport.planTitle(text) == "Create hello file",
+                         "the plan keeps its text and its heading is the title")
+            let blank = #"{"hook_event_name":"PermissionRequest","tool_name":"ExitPlanMode","tool_input":{"plan":"  \n"}}"#
+            suite.expect(ClaudeApprovalSupport.parseRequest(Data(blank.utf8)) == nil, "a blank plan goes back to the terminal")
+        }
+        suite.run("planTitleFallsBackToFirstLine") {
+            suite.expect(ClaudeApprovalSupport.planTitle("\n  Do the thing\nthen more") == "Do the thing", "no heading, first line")
+            suite.expect(ClaudeApprovalSupport.planTitle("intro\n## Sub\n# Main") == "Main", "the first top heading wins")
+            suite.expect(ClaudeApprovalSupport.planTitle("#\nbody") == "#", "an empty heading falls back to the line")
+            suite.expect(ClaudeApprovalSupport.planTitle(" \n") == nil, "blank is nil")
+        }
+        suite.run("encodesAnswersAsUpdatedInput") {
+            guard let ask, case .questions(let questions) = ask.kind else { return suite.expect(false, "fixture parses") }
+            let answers = ClaudeApprovalSupport.answers(for: questions, chosen: [[1], [1, 0]], other: ["", " Medium "])
+            suite.expect(answers == ["Which color?": "Blue", "Which sizes?": "Small, Large, Medium"],
+                         "labels follow option order, then the typed text: \(answers ?? [:])")
+            let allow = decision(.answers(answers ?? [:]), ask)
+            let input = allow["updatedInput"] as? [String: Any]
+            suite.expect(allow["behavior"] as? String == "allow"
+                         && (input?["questions"] as? [Any])?.count == 2
+                         && input?["answers"] as? [String: String] == answers,
+                         "the questions go back with the answers, which Claude Code requires")
+            let other = ClaudeApprovalSupport.answers(for: questions, chosen: [[], [0]], other: ["Green", ""])
+            suite.expect(other?["Which color?"] == "Green", "Other text alone answers a single-select question")
+        }
+        suite.run("recommendedOptionDropsItsMarker") {
+            let pick = ClaudeApprovalQuestion.Option(label: "Blue (Recommended)", description: nil)
+            let plain = ClaudeApprovalQuestion.Option(label: "Red", description: nil)
+            suite.expect(pick.isRecommended && pick.title == "Blue", "the marker becomes a star, not text")
+            suite.expect(!plain.isRecommended && plain.title == "Red", "a plain label is unchanged")
+        }
+        suite.run("answersRequireEveryQuestion") {
+            guard let ask, case .questions(let questions) = ask.kind else { return suite.expect(false, "fixture parses") }
+            suite.expect(ClaudeApprovalSupport.answers(for: questions, chosen: [[0], []], other: ["", "  "]) == nil,
+                         "a blank question keeps Answer unavailable")
+            suite.expect(ClaudeApprovalSupport.answers(for: questions, chosen: [], other: []) == nil, "no state, no answer")
+            suite.expect(!ClaudeApprovalSupport.accepts(.answers(["Which color?": "Red"]), for: ask),
+                         "the service ignores answers that miss a question")
+            suite.expect(ClaudeApprovalSupport.accepts(.answers(["Which color?": "Red", "Which sizes?": "Small"]), for: ask),
+                         "and takes a full set")
+        }
+        suite.run("encodesApproveWithAcceptEdits") {
+            guard let plan else { return suite.expect(false, "fixture parses") }
+            let approve = decision(.allowAcceptingEdits, plan)
+            let update = (approve["updatedPermissions"] as? [[String: Any]])?.first
+            suite.expect(approve["behavior"] as? String == "allow" && update?["type"] as? String == "setMode"
+                         && update?["mode"] as? String == "acceptEdits" && update?["destination"] as? String == "session",
+                         "approve + accept edits switches the session mode")
+            suite.expect(decision(.allow, plan).count == 1, "plain approve is just allow")
+            suite.expect(!ClaudeApprovalSupport.accepts(.allowAcceptingEdits, for: ClaudeApprovalSupport.parseRequest(Data(payload().utf8))!),
+                         "accept edits is only for a plan")
+        }
+        suite.run("encodesKeepPlanningDeny") {
+            guard let plan else { return suite.expect(false, "fixture parses") }
+            let deny = decision(.deny, plan)
+            suite.expect(deny["behavior"] as? String == "deny"
+                         && deny["message"] as? String == "Not approved in Vorssaint. Keep planning.",
+                         "keep planning denies with its own message")
+        }
+        suite.run("approvalCardHeightByKind") {
+            let bash = ClaudeApprovalSupport.parseRequest(Data(payload().utf8))!
+            suite.expect(NotchAgentSupport.approvalCardHeight(for: bash) == 96, "a tool card keeps its height")
+            suite.expect(plan.map(NotchAgentSupport.approvalCardHeight(for:)) == 240, "a plan has room to read")
+            suite.expect(ask.map(NotchAgentSupport.approvalCardHeight(for:)) == 300, "two questions of two options clamp at 300, and the middle scrolls")
+        }
+        suite.run("serviceAnswersQuestions") {
+            withService { service, _ in
+                let client = Client(path: service.socketPath!)
+                client?.send(askPayload + "\n")
+                suite.expect(waitFor { service.pending != nil }, "the question is shown")
+                service.answer(.answers(["Which color?": "Red", "Which sizes?": "Large"]), to: service.pending!)
+                let reply = client?.reply(within: 2).map(json)
+                let decision = (reply?["hookSpecificOutput"] as? [String: Any])?["decision"] as? [String: Any]
+                suite.expect((decision?["updatedInput"] as? [String: Any])?["answers"] as? [String: String]
+                             == ["Which color?": "Red", "Which sizes?": "Large"], "the answers reach the relay")
+            }
+        }
+        suite.run("serviceIgnoresDecisionForWrongKind") {
+            withService { service, _ in
+                let client = Client(path: service.socketPath!)
+                client?.send(payload() + "\n")
+                suite.expect(waitFor { service.pending != nil }, "the request is shown")
+                service.answer(.answers(["x": "y"]), to: service.pending!)
+                service.answer(.allowAcceptingEdits, to: service.pending!)
+                suite.expect(client?.reply(within: 0.3) == nil && service.pending != nil,
+                             "an answer meant for another card leaves this one up")
+            }
+        }
+    }
+
+    // MARK: Codex
+
+    private static func codex(_ suite: TestSuite) {
+        suite.run("parsesCodexBashRequest") {
+            let request = ClaudeApprovalSupport.parseRequest(Data(codexPayload.utf8), agent: .codex)
+            suite.expect(request?.agent == .codex && request?.toolName == "Bash" && request?.summary == "rm -rf build",
+                         "a Codex Bash request shows its command")
+            suite.expect(request?.canAlways == false && request?.transcriptPath == nil && request?.kind == .tool,
+                         "with no Always and no transcript watch")
+        }
+        suite.run("parsesCodexRequestWithoutToolName") {
+            let bare = #"{"hook_event_name":"PermissionRequest","cwd":"/a/proj","tool_input":{"command":"ls"}}"#
+            let request = ClaudeApprovalSupport.parseRequest(Data(bare.utf8), agent: .codex)
+            suite.expect(request?.toolName == "" && request?.summary == "ls", "Codex may leave the tool out")
+            suite.expect(ClaudeApprovalSupport.parseRequest(Data(bare.utf8)) == nil, "Claude Code may not")
+        }
+        suite.run("codexQuestionNameIsPlainTool") {
+            suite.expect(ClaudeApprovalSupport.parseRequest(Data(askPayload.utf8), agent: .codex)?.kind == .tool,
+                         "Codex documents no AskUserQuestion, so the name means nothing special")
+        }
+        suite.run("serviceReadsCodexPrefix") {
+            withService { service, _ in
+                let client = Client(path: service.socketPath!)
+                client?.send("codex " + codexPayload + "\n")
+                suite.expect(waitFor { service.pending?.agent == .codex }, "the prefix marks a Codex request")
+                service.answer(.always, to: service.pending!)
+                suite.expect(client?.reply(within: 0.3) == nil, "Always never reaches Codex")
+                service.answer(.allow, to: service.pending!)
+                let reply = client?.reply(within: 2).map(json)
+                suite.expect(((reply?["hookSpecificOutput"] as? [String: Any])?["decision"] as? [String: Any])?["behavior"] as? String == "allow",
+                             "Allow reaches the relay")
+                suite.expect(waitFor { service.pending == nil }, "and clears the card")
+            }
+        }
+        let codexCommand = ClaudeApprovalSupport.hookCommand(executable: "/Applications/Vorssaint.app/Contents/MacOS/Vorssaint",
+                                                             socket: "/s/claude.sock", agent: .codex)
+        suite.run("codexCommandUsesCodexMarker") {
+            suite.expect(codexCommand == "'/Applications/Vorssaint.app/Contents/MacOS/Vorssaint' --codex-hook '/s/claude.sock'",
+                         "the Codex hook uses its own argument")
+            suite.expect(ClaudeApprovalSupport.isVorssaintHook(codexCommand), "and is recognised as ours")
+        }
+        // The documented hooks.json shape, with another tool's Stop hook.
+        let hooks = #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"notify-send done","timeout":30}]}]}}"#
+        suite.run("installIntoCodexHooksFile") {
+            let original = settings(hooks)
+            let installed = ClaudeApprovalSupport.installing(original, command: codexCommand)
+            suite.expect(ClaudeApprovalSupport.installedCommand(in: installed) == codexCommand, "the entry is added")
+            let entry = (((installed["hooks"] as? [String: Any])?["PermissionRequest"] as? [[String: Any]])?.first?["hooks"] as? [[String: Any]])?.first
+            suite.expect(entry?["timeout"] as? Int == 120, "with the 120 s timeout")
+            suite.expect(ClaudeApprovalSupport.uninstalling(installed) as NSDictionary == original as NSDictionary,
+                         "removing gives back the same content")
+        }
+        suite.run("claudeMarkerInCodexFileReadsAsOtherCopy") {
+            let wrong = ClaudeApprovalSupport.render(ClaudeApprovalSupport.installing(settings(hooks), command: command))
+            suite.expect(ClaudeApprovalSupport.status(of: wrong, command: codexCommand) == .otherCopy,
+                         "a Claude entry in hooks.json is offered as an update")
+        }
+        suite.run("backupNameUsesFileName") {
+            let date = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 1, hour: 9, minute: 5, second: 7))!
+            suite.expect(ClaudeApprovalSupport.backupName(file: "hooks.json", date: date) == "hooks.json.bak-20261001-090507",
+                         "the backup is named after its file")
+        }
+        suite.run("installWritesCodexBackupInTempDir") {
+            let directory = temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let codexURL = directory.appendingPathComponent(".codex/hooks.json")
+            let service = ClaudeApprovalService(socketPath: directory.appendingPathComponent("c.sock").path,
+                                                settingsURL: directory.appendingPathComponent("settings.json"),
+                                                codexSettingsURL: codexURL)
+            suite.expect(service.hookStatus(for: .codex) == .notInstalled, "a missing hooks.json reads as not installed")
+            suite.expect(service.writeSettings(agent: .codex, installing: true), "the first install creates the file")
+            suite.expect(service.hookStatus(for: .codex) == .installed && service.hookStatus(for: .claude) == .notInstalled,
+                         "only Codex is installed")
+            let date = Date(timeIntervalSince1970: 1_790_000_000)
+            suite.expect(service.writeSettings(agent: .codex, installing: false, now: date), "the removal is written")
+            let backup = codexURL.deletingLastPathComponent()
+                .appendingPathComponent(ClaudeApprovalSupport.backupName(file: "hooks.json", date: date))
+            suite.expect(FileManager.default.fileExists(atPath: backup.path), "next to a dated hooks.json backup")
+            suite.expect(service.hookStatus(for: .codex) == .notInstalled, "and reads as removed")
+        }
+    }
+
+    // MARK: Strings
+
+    private static func strings(_ suite: TestSuite) {
+        suite.run("approvalStringsFormatsInEveryLanguage") {
+            for language in AppLanguage.allCases {
+                let text = FeatureStrings.claudeApprovals(language)
+                for format in [text.statusNotInstalledFormat, text.statusInstalledFormat, text.statusUnreadableFormat,
+                               text.reviewTitleFormat, text.writeFailedFormat, text.requestLabelFormat,
+                               text.questionLabelFormat, text.planLabelFormat, text.foreignHooksFormat] {
+                    let conversions = TestFormat.parse(format)?.conversions
+                    suite.expect(conversions == ["@"], "\(language.rawValue): \(format) takes one %@")
+                }
+                let values = Mirror(reflecting: text).children.compactMap { $0.value as? String }
+                suite.expect(values.allSatisfy { !$0.isEmpty && !$0.contains("\u{2014}") },
+                             "\(language.rawValue): no blank string and no em-dash")
             }
         }
     }

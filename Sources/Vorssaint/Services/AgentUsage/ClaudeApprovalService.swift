@@ -5,7 +5,7 @@ import Combine
 import Darwin
 import Foundation
 
-/// Listens for the `--claude-hook` relay and holds at most one request. A new
+/// Listens for the `--claude-hook` and `--codex-hook` relays and holds at most one request. A new
 /// request releases the one before it, and so do the deadline, `stop()` and an
 /// answer given in the terminal. Releasing closes the connection without a
 /// reply, which Claude Code reads as "no decision", so its own prompt stays in
@@ -19,6 +19,7 @@ final class ClaudeApprovalService: ObservableObject {
 
     let socketPath: String?
     let settingsURL: URL
+    let codexSettingsURL: URL
     var pendingSeconds = ClaudeApprovalSupport.pendingSeconds
     var transcriptInterval: TimeInterval = 0.5
 
@@ -44,9 +45,11 @@ final class ClaudeApprovalService: ObservableObject {
         init(fd: Int32) { self.fd = fd }
     }
 
-    init(socketPath: String?, settingsURL: URL = ClaudeApprovalSupport.settingsURL) {
+    init(socketPath: String?, settingsURL: URL = ClaudeApprovalSupport.settingsURL(for: .claude),
+         codexSettingsURL: URL = ClaudeApprovalSupport.settingsURL(for: .codex)) {
         self.socketPath = socketPath
         self.settingsURL = settingsURL
+        self.codexSettingsURL = codexSettingsURL
     }
 
     // MARK: Lifecycle
@@ -86,7 +89,7 @@ final class ClaudeApprovalService: ObservableObject {
     func answer(_ decision: ClaudeApprovalDecision, to request: ClaudeApprovalRequest) {
         queue.async { [self] in
             guard let connection = current, let held = connection.request, held.id == request.id,
-                  decision != .always || held.canAlways
+                  ClaudeApprovalSupport.accepts(decision, for: held)
             else { return }
             let reply = ClaudeApprovalSupport.reply(decision, for: held)
             _ = reply.withUnsafeBytes { write(connection.fd, $0.baseAddress, $0.count) }
@@ -144,7 +147,10 @@ final class ClaudeApprovalService: ObservableObject {
         connection.buffer.append(contentsOf: chunk[..<(newline ?? count)])
         guard connection.buffer.count <= Self.payloadLimit else { return drop(connection) }
         guard newline != nil else { return }
-        guard var request = ClaudeApprovalSupport.parseRequest(connection.buffer)
+        let prefix = Data(ClaudeApprovalRelay.codexPrefix.utf8)
+        let codex = connection.buffer.starts(with: prefix)
+        guard var request = ClaudeApprovalSupport.parseRequest(codex ? connection.buffer.dropFirst(prefix.count) : connection.buffer,
+                                                               agent: codex ? .codex : .claude)
         else { return drop(connection) }
         connection.buffer = Data()
         nextID += 1
@@ -243,33 +249,37 @@ final class ClaudeApprovalService: ObservableObject {
         return String(decoding: complete, as: UTF8.self).split(separator: "\n")
     }
 
-    // MARK: settings.json
+    // MARK: settings.json and hooks.json
 
-    var hookCommand: String? {
+    func settingsURL(for agent: AgentProvider) -> URL {
+        agent == .codex ? codexSettingsURL : settingsURL
+    }
+
+    func hookCommand(for agent: AgentProvider = .claude) -> String? {
         guard let executable = Bundle.main.executablePath, let socketPath else { return nil }
-        return ClaudeApprovalSupport.hookCommand(executable: executable, socket: socketPath)
+        return ClaudeApprovalSupport.hookCommand(executable: executable, socket: socketPath, agent: agent)
     }
 
-    private func settingsData() -> Data? {
-        try? Data(contentsOf: settingsURL)
+    private func settingsData(_ agent: AgentProvider) -> Data? {
+        try? Data(contentsOf: settingsURL(for: agent))
     }
 
-    func hookStatus() -> ClaudeHookStatus {
-        ClaudeApprovalSupport.status(of: settingsData(), command: hookCommand ?? "")
+    func hookStatus(for agent: AgentProvider = .claude) -> ClaudeHookStatus {
+        ClaudeApprovalSupport.status(of: settingsData(agent), command: hookCommand(for: agent) ?? "")
     }
 
-    func foreignHooks() -> [String] {
-        ClaudeApprovalSupport.parseSettings(settingsData()).map(ClaudeApprovalSupport.foreignPermissionHooks) ?? []
+    func foreignHooks(for agent: AgentProvider = .claude) -> [String] {
+        ClaudeApprovalSupport.parseSettings(settingsData(agent)).map(ClaudeApprovalSupport.foreignPermissionHooks) ?? []
     }
 
     /// The file as it is and as installing (or uninstalling) would write it.
     /// nil when the file cannot be parsed, in which case nothing is written.
-    func proposedSettings(installing: Bool) -> (old: String, new: String)? {
-        let data = settingsData()
+    func proposedSettings(agent: AgentProvider = .claude, installing: Bool) -> (old: String, new: String)? {
+        let data = settingsData(agent)
         guard let settings = ClaudeApprovalSupport.parseSettings(data) else { return nil }
         let changed: [String: Any]
         if installing {
-            guard let command = hookCommand else { return nil }
+            guard let command = hookCommand(for: agent) else { return nil }
             changed = ClaudeApprovalSupport.installing(settings, command: command)
         } else {
             changed = ClaudeApprovalSupport.uninstalling(settings)
@@ -280,17 +290,17 @@ final class ClaudeApprovalService: ObservableObject {
 
     /// Backs the current file up byte for byte, then writes atomically.
     @discardableResult
-    func writeSettings(installing: Bool, now: Date = Date()) -> Bool {
-        guard let proposed = proposedSettings(installing: installing) else { return false }
+    func writeSettings(agent: AgentProvider = .claude, installing: Bool, now: Date = Date()) -> Bool {
+        guard let proposed = proposedSettings(agent: agent, installing: installing) else { return false }
+        let url = settingsURL(for: agent)
         let manager = FileManager.default
-        if manager.fileExists(atPath: settingsURL.path) {
-            let backup = settingsURL.deletingLastPathComponent()
-                .appendingPathComponent(ClaudeApprovalSupport.backupName(date: now))
-            guard (try? manager.copyItem(at: settingsURL, to: backup)) != nil else { return false }
+        if manager.fileExists(atPath: url.path) {
+            let backup = url.deletingLastPathComponent()
+                .appendingPathComponent(ClaudeApprovalSupport.backupName(file: url.lastPathComponent, date: now))
+            guard (try? manager.copyItem(at: url, to: backup)) != nil else { return false }
         } else {
-            try? manager.createDirectory(at: settingsURL.deletingLastPathComponent(),
-                                         withIntermediateDirectories: true)
+            try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         }
-        return (try? Data(proposed.new.utf8).write(to: settingsURL, options: .atomic)) != nil
+        return (try? Data(proposed.new.utf8).write(to: url, options: .atomic)) != nil
     }
 }

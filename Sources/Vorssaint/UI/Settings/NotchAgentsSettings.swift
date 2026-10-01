@@ -26,10 +26,10 @@ struct NotchAgentsSettingsControls: View {
     @AppStorage(DefaultsKey.notchAgentsPriceUpdates) private var priceUpdates = true
     @AppStorage(DefaultsKey.notchAgentApprovalsEnabled) private var approvalsEnabled = true
     @AppStorage(AppFeature.notchAgentApprovals.availabilityKey) private var approvalsInstalled = false
-    @State private var hookStatus: ClaudeHookStatus?
+    @State private var hookStatus: [AgentProvider: ClaudeHookStatus] = [:]
     @State private var foreignHooks: [String] = []
     @State private var review: ClaudeApprovalReview?
-    @State private var writeFailed = false
+    @State private var writeFailed: AgentProvider?
     @State private var dragging: NotchAgentCard?
     @State private var roots: [AgentProvider: Bool] = [:]
     @State private var claudeApp: URL?
@@ -159,7 +159,8 @@ struct NotchAgentsSettingsControls: View {
             ClaudeApprovalPreviewSheet(review: review, text: approvalText) { confirmed in
                 self.review = nil
                 guard confirmed else { return }
-                writeFailed = !ClaudeApprovalService.shared.writeSettings(installing: review.installing)
+                writeFailed = ClaudeApprovalService.shared.writeSettings(agent: review.agent, installing: review.installing)
+                    ? nil : review.agent
                 readHookStatus()
             }
         }
@@ -190,24 +191,16 @@ struct NotchAgentsSettingsControls: View {
             Label(approval.socketTooLong, systemImage: "exclamationmark.triangle.fill")
                 .font(.callout).foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
-        } else if let hookStatus {
-            HStack(spacing: 10) {
-                Image(systemName: hookStatus == .installed ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .foregroundStyle(hookStatus == .installed ? .green : .orange)
-                Text(hookStatusText(hookStatus, approval))
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                if hookStatus == .notInstalled || hookStatus == .otherCopy {
-                    Button(hookStatus == .otherCopy ? approval.update : approval.install) { prepareReview(installing: true) }
-                }
-                if hookStatus == .installed || hookStatus == .otherCopy {
-                    Button(approval.remove) { prepareReview(installing: false) }
-                }
+        } else {
+            ForEach(AgentProvider.allCases) { agent in
+                if let status = hookStatus[agent] { hookRow(agent, status, approval) }
             }
-            .font(.callout)
+            Text(approval.codexUntested).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        if writeFailed {
-            Text(approval.writeFailed).font(.caption).foregroundStyle(.red)
+        if let writeFailed {
+            Text(String(format: approval.writeFailedFormat, settingsPath(writeFailed)))
+                .font(.caption).foregroundStyle(.red)
         }
         if !foreignHooks.isEmpty {
             Label(String(format: approval.foreignHooksFormat, foreignHooks.joined(separator: ", ")),
@@ -219,28 +212,52 @@ struct NotchAgentsSettingsControls: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func hookStatusText(_ status: ClaudeHookStatus, _ approval: ClaudeApprovalStrings) -> String {
-        switch status {
-        case .notInstalled: return approval.statusNotInstalled
-        case .installed: return approval.statusInstalled
-        case .otherCopy: return approval.statusOtherCopy
-        case .unreadable: return approval.statusUnreadable
+    private func hookRow(_ agent: AgentProvider, _ status: ClaudeHookStatus, _ approval: ClaudeApprovalStrings) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: status == .installed ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .foregroundStyle(status == .installed ? .green : .orange)
+            Text(hookStatusText(agent, status, approval))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            if status == .notInstalled || status == .otherCopy {
+                Button(status == .otherCopy ? approval.update : approval.install) { prepareReview(agent, installing: true) }
+            }
+            if status == .installed || status == .otherCopy {
+                Button(approval.remove) { prepareReview(agent, installing: false) }
+            }
         }
+        .font(.callout)
+    }
+
+    private func hookStatusText(_ agent: AgentProvider, _ status: ClaudeHookStatus, _ approval: ClaudeApprovalStrings) -> String {
+        let product = ClaudeApprovalSupport.productName(agent)
+        switch status {
+        case .notInstalled: return String(format: approval.statusNotInstalledFormat, product)
+        case .installed: return String(format: approval.statusInstalledFormat, product)
+        case .otherCopy: return product + ": " + approval.statusOtherCopy
+        case .unreadable: return String(format: approval.statusUnreadableFormat, settingsPath(agent))
+        }
+    }
+
+    private func settingsPath(_ agent: AgentProvider) -> String {
+        (ClaudeApprovalService.shared.settingsURL(for: agent).path as NSString).abbreviatingWithTildeInPath
     }
 
     /// Read from the file each time the page opens or a write lands; no
     /// preference mirrors it, so an edit made elsewhere is never contradicted.
     private func readHookStatus() {
-        hookStatus = ClaudeApprovalService.shared.hookStatus()
-        foreignHooks = ClaudeApprovalService.shared.foreignHooks()
+        let service = ClaudeApprovalService.shared
+        hookStatus = Dictionary(uniqueKeysWithValues: AgentProvider.allCases.map { ($0, service.hookStatus(for: $0)) })
+        foreignHooks = AgentProvider.allCases.flatMap(service.foreignHooks(for:))
     }
 
-    private func prepareReview(installing: Bool) {
-        writeFailed = false
-        guard let proposed = ClaudeApprovalService.shared.proposedSettings(installing: installing) else {
+    private func prepareReview(_ agent: AgentProvider, installing: Bool) {
+        writeFailed = nil
+        guard let proposed = ClaudeApprovalService.shared.proposedSettings(agent: agent, installing: installing) else {
             return readHookStatus()
         }
-        review = ClaudeApprovalReview(installing: installing, lines: ClaudeApprovalSupport.diff(proposed.old, proposed.new))
+        review = ClaudeApprovalReview(agent: agent, path: settingsPath(agent), installing: installing,
+                                      lines: ClaudeApprovalSupport.diff(proposed.old, proposed.new))
     }
 
     private var priceCaption: String {
@@ -395,11 +412,13 @@ private struct NotchAgentStripSample: View {
 
 private struct ClaudeApprovalReview: Identifiable {
     let id = UUID()
+    let agent: AgentProvider
+    let path: String
     let installing: Bool
     let lines: [ClaudeSettingsDiffLine]
 }
 
-/// What installing or removing writes to Claude Code's settings, shown as a
+/// What installing or removing writes to Claude Code's or Codex's hooks, shown as a
 /// diff before anything is touched.
 private struct ClaudeApprovalPreviewSheet: View {
     let review: ClaudeApprovalReview
@@ -408,7 +427,7 @@ private struct ClaudeApprovalPreviewSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(text.reviewTitle).font(.headline)
+            Text(String(format: text.reviewTitleFormat, review.path)).font(.headline)
             ScrollView([.vertical, .horizontal]) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(review.lines.enumerated()), id: \.offset) { _, line in

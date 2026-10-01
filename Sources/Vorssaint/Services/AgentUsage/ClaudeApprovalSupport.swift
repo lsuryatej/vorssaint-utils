@@ -3,12 +3,40 @@
 
 import Foundation
 
-/// One Claude Code PermissionRequest, reduced to what the notch card shows and
-/// what the reply and the transcript watch need.
+/// One AskUserQuestion question, as Claude Code sends it.
+struct ClaudeApprovalQuestion: Equatable {
+    struct Option: Equatable {
+        let label: String
+        let description: String?
+
+        /// Claude marks its pick by ending the label with "(Recommended)".
+        var isRecommended: Bool { label.hasSuffix("(Recommended)") }
+        /// The label without that marker; the answer still sends `label`.
+        var title: String {
+            isRecommended ? String(label.dropLast("(Recommended)".count)).trimmingCharacters(in: .whitespaces) : label
+        }
+    }
+    let text: String
+    let header: String?
+    let options: [Option]
+    let multiSelect: Bool
+}
+
+/// What the card asks: a tool to allow, questions to answer, or a plan to approve.
+enum ClaudeApprovalKind: Equatable {
+    case tool
+    case questions([ClaudeApprovalQuestion])
+    case plan(String)
+}
+
+/// One Claude Code or Codex PermissionRequest, reduced to what the notch card
+/// shows and what the reply and the transcript watch need.
 struct ClaudeApprovalRequest: Equatable {
     /// Assigned by the service per connection, so an answer reaches the request
     /// the card showed and never one that replaced it a moment later.
     var id = 0
+    var agent = AgentProvider.claude
+    var kind = ClaudeApprovalKind.tool
     let cwd: String
     let toolName: String
     let toolInput: NSDictionary
@@ -23,7 +51,13 @@ struct ClaudeApprovalRequest: Equatable {
     var project: String { AgentLogParser.projectName(cwd) }
 }
 
-enum ClaudeApprovalDecision { case allow, deny, always }
+enum ClaudeApprovalDecision: Equatable {
+    case allow, deny, always
+    /// AskUserQuestion: question text to the chosen label(s).
+    case answers([String: String])
+    /// ExitPlanMode: approve and switch the session to accept-edits.
+    case allowAcceptingEdits
+}
 
 enum ClaudeHookStatus: Equatable { case notInstalled, installed, otherCopy, unreadable }
 
@@ -39,6 +73,7 @@ enum ClaudeApprovalSupport {
     static let pendingSeconds: TimeInterval = 110
     static let hookTimeout = 120
     static let denyMessage = "Denied in Vorssaint"
+    static let keepPlanningMessage = "Not approved in Vorssaint. Keep planning."
     /// `sun_path` holds 104 bytes including the terminator.
     static let socketPathLimit = 103
 
@@ -53,30 +88,109 @@ enum ClaudeApprovalSupport {
         return path.utf8.count <= socketPathLimit ? path : nil
     }
 
-    static var settingsURL: URL {
+    static func settingsURL(for agent: AgentProvider) -> URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/settings.json")
+            .appendingPathComponent(agent == .codex ? ".codex/hooks.json" : ".claude/settings.json")
+    }
+
+    /// The name the settings and the card use; product names stay untranslated.
+    static func productName(_ agent: AgentProvider) -> String {
+        agent == .codex ? "Codex" : "Claude Code"
     }
 
     // MARK: Payload and reply
 
-    static func parseRequest(_ data: Data) -> ClaudeApprovalRequest? {
+    /// Claude Code's AskUserQuestion and ExitPlanMode become their own cards;
+    /// one that cannot be read is nil, so it goes back to the terminal rather
+    /// than showing raw JSON. Codex documents neither, and may omit the tool.
+    static func parseRequest(_ data: Data, agent: AgentProvider = .claude) -> ClaudeApprovalRequest? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              object["hook_event_name"] as? String == "PermissionRequest",
-              let tool = object["tool_name"] as? String, !tool.isEmpty
+              object["hook_event_name"] as? String == "PermissionRequest"
         else { return nil }
+        let tool = object["tool_name"] as? String ?? ""
+        guard agent == .codex || !tool.isEmpty else { return nil }
         let input = object["tool_input"] as? [String: Any] ?? [:]
-        let rules = (object["permission_suggestions"] as? [Any] ?? []).filter {
+        var kind = ClaudeApprovalKind.tool
+        if agent == .claude, tool == "AskUserQuestion" {
+            guard let questions = parseQuestions(input["questions"]) else { return nil }
+            kind = .questions(questions)
+        } else if agent == .claude, tool == "ExitPlanMode" {
+            guard let plan = input["plan"] as? String, planTitle(plan) != nil else { return nil }
+            kind = .plan(plan)
+        }
+        let rules = agent == .codex ? [] : (object["permission_suggestions"] as? [Any] ?? []).filter {
             guard let update = $0 as? [String: Any] else { return false }
             return update["type"] as? String == "addRules" && !(update["rules"] as? [Any] ?? []).isEmpty
         }
         return ClaudeApprovalRequest(
+            agent: agent,
+            kind: kind,
             cwd: object["cwd"] as? String ?? "",
             toolName: tool,
             toolInput: input as NSDictionary,
             summary: summary(tool: tool, input: input),
-            transcriptPath: object["transcript_path"] as? String,
+            // Codex rollouts are not Claude transcripts, so nothing watches them.
+            transcriptPath: agent == .codex ? nil : object["transcript_path"] as? String,
             alwaysRules: rules.isEmpty ? nil : rules as NSArray)
+    }
+
+    /// One to four questions, each with a text and at least one option.
+    /// Options arrive as `{label, description}`; plain strings are accepted too.
+    static func parseQuestions(_ raw: Any?) -> [ClaudeApprovalQuestion]? {
+        guard let items = raw as? [[String: Any]], (1...4).contains(items.count) else { return nil }
+        let questions = items.compactMap { item -> ClaudeApprovalQuestion? in
+            guard let text = item["question"] as? String, !text.isEmpty else { return nil }
+            let options = (item["options"] as? [Any] ?? []).compactMap { option -> ClaudeApprovalQuestion.Option? in
+                if let label = option as? String { return label.isEmpty ? nil : .init(label: label, description: nil) }
+                guard let option = option as? [String: Any], let label = option["label"] as? String, !label.isEmpty
+                else { return nil }
+                return .init(label: label, description: option["description"] as? String)
+            }
+            guard !options.isEmpty else { return nil }
+            return ClaudeApprovalQuestion(text: text, header: item["header"] as? String, options: options,
+                                          multiSelect: item["multiSelect"] as? Bool ?? false)
+        }
+        return questions.count == items.count ? questions : nil
+    }
+
+    /// Question text to its answer: the chosen labels in option order, then
+    /// the typed "Other" text, joined with ", " as Claude Code's own picker
+    /// does. nil while any question is still blank.
+    static func answers(for questions: [ClaudeApprovalQuestion], chosen: [Set<Int>],
+                        other: [String]) -> [String: String]? {
+        var answers: [String: String] = [:]
+        for (index, question) in questions.enumerated() {
+            var labels = question.options.indices
+                .filter { chosen.indices.contains(index) && chosen[index].contains($0) }
+                .map { question.options[$0].label }
+            let typed = other.indices.contains(index) ? other[index].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            if !typed.isEmpty { labels.append(typed) }
+            guard !labels.isEmpty else { return nil }
+            answers[question.text] = labels.joined(separator: ", ")
+        }
+        return answers
+    }
+
+    /// The plan's first `#` heading, else its first line; nil for a blank plan.
+    static func planTitle(_ plan: String) -> String? {
+        let lines = plan.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard let first = lines.first else { return nil }
+        let line = lines.first { $0.hasPrefix("# ") } ?? first
+        let title = line.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
+        return title.isEmpty ? first : title
+    }
+
+    /// Whether this answer fits this card; anything else is ignored.
+    static func accepts(_ decision: ClaudeApprovalDecision, for request: ClaudeApprovalRequest) -> Bool {
+        switch (decision, request.kind) {
+        case (.always, _): return request.canAlways
+        case (.answers(let answers), .questions(let questions)): return answers.count == questions.count
+        case (.answers, _): return false
+        case (.allowAcceptingEdits, .plan): return true
+        case (.allowAcceptingEdits, _): return false
+        default: return true
+        }
     }
 
     static func summary(tool: String, input: [String: Any]) -> String {
@@ -92,10 +206,24 @@ enum ClaudeApprovalSupport {
         var verdict: [String: Any]
         switch decision {
         case .allow: verdict = ["behavior": "allow"]
-        case .deny: verdict = ["behavior": "deny", "message": denyMessage]
+        case .deny:
+            if case .plan = request.kind {
+                verdict = ["behavior": "deny", "message": keepPlanningMessage]
+            } else {
+                verdict = ["behavior": "deny", "message": denyMessage]
+            }
         case .always:
             verdict = ["behavior": "allow"]
             if let rules = request.alwaysRules { verdict["updatedPermissions"] = rules }
+        case .answers(let answers):
+            // Claude Code validates updatedInput against the whole schema, so
+            // the questions go back with the answers.
+            var input = request.toolInput as? [String: Any] ?? [:]
+            input["answers"] = answers
+            verdict = ["behavior": "allow", "updatedInput": input]
+        case .allowAcceptingEdits:
+            verdict = ["behavior": "allow", "updatedPermissions": [
+                ["type": "setMode", "mode": "acceptEdits", "destination": "session"]]]
         }
         let output: [String: Any] = ["hookSpecificOutput": [
             "hookEventName": "PermissionRequest", "decision": verdict]]
@@ -133,10 +261,11 @@ enum ClaudeApprovalSupport {
         return false
     }
 
-    // MARK: settings.json
+    // MARK: settings.json and hooks.json
 
-    static func hookCommand(executable: String, socket: String) -> String {
-        "\(shellQuoted(executable)) \(ClaudeApprovalRelay.argument) \(shellQuoted(socket))"
+    static func hookCommand(executable: String, socket: String, agent: AgentProvider = .claude) -> String {
+        let argument = agent == .codex ? ClaudeApprovalRelay.codexArgument : ClaudeApprovalRelay.argument
+        return "\(shellQuoted(executable)) \(argument) \(shellQuoted(socket))"
     }
 
     static func shellQuoted(_ text: String) -> String {
@@ -144,7 +273,7 @@ enum ClaudeApprovalSupport {
     }
 
     static func isVorssaintHook(_ command: String) -> Bool {
-        command.contains(ClaudeApprovalRelay.argument)
+        command.contains(ClaudeApprovalRelay.argument) || command.contains(ClaudeApprovalRelay.codexArgument)
     }
 
     private static func permissionCommands(in settings: [String: Any]) -> [String] {
@@ -237,10 +366,10 @@ enum ClaudeApprovalSupport {
         return lines
     }
 
-    static func backupName(date: Date) -> String {
+    static func backupName(file: String = "settings.json", date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return "settings.json.bak-" + formatter.string(from: date)
+        return file + ".bak-" + formatter.string(from: date)
     }
 }

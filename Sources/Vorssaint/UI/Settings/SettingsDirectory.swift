@@ -370,7 +370,7 @@ enum SettingsDirectory {
                                                  FeatureStrings.notchAgents(language).title, "Claude", "Codex", "OpenCode", "GitHub Copilot", "AI", "tokens",
                                                  FeatureStrings.notchAgents(language).resetsCard,
                                                  FeatureStrings.claudeApprovals(language).title,
-                                                 "Claude Code", "permission", "approval", "hook",
+                                                 "Claude Code", "permission", "approval", "hook", "question", "plan",
                                                  FeatureStrings.notchLockScreen(language).title,
                                                  FeatureStrings.notchLockScreen(language).sounds]
                                           // The fit card only appears with a camera housing to fit.

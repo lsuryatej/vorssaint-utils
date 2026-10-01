@@ -830,7 +830,7 @@ final class NotchService: ObservableObject {
     /// The AI page is as tall as the cards it shows; nil while the logs are
     /// first read, when the page fills the island with its progress.
     private func agentsContentHeight(width: CGFloat) -> CGFloat? {
-        if ClaudeApprovalService.shared.pending != nil { return NotchAgentSupport.approvalCardHeight }
+        if let pending = ClaudeApprovalService.shared.pending { return NotchAgentSupport.approvalCardHeight(for: pending) }
         let usage = AgentUsageService.shared.snapshot
         guard usage.loaded else { return nil }
         let providers = NotchAgentSupport.providers().filter(usage.seen.contains)

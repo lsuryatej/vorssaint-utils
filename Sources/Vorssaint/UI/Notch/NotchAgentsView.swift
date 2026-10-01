@@ -38,7 +38,9 @@ struct NotchAgentsView: View {
         Group {
             if let request = approvals.pending {
                 NotchAgentApprovalCard(request: request)
-                    .frame(height: min(size.height, NotchAgentSupport.approvalCardHeight))
+                    // A new request starts with no choices made.
+                    .id(request.id)
+                    .frame(height: min(size.height, NotchAgentSupport.approvalCardHeight(for: request)))
             } else if !usage.snapshot.loaded {
                 VStack(spacing: 10) {
                     ProgressView().controlSize(.small)
@@ -893,8 +895,8 @@ private struct NotchAgentResetsCard: View {
     }
 }
 
-private func notchAgentPill(_ title: String, symbol: String? = nil, prominent: Bool = true, tint: Color,
-                            action: @escaping () -> Void) -> some View {
+func notchAgentPill(_ title: String, symbol: String? = nil, prominent: Bool = true, tint: Color,
+                    action: @escaping () -> Void) -> some View {
     Button(action: action) {
         HStack(spacing: 3) {
             if let symbol { Image(systemName: symbol).imageScale(.small) }
@@ -909,44 +911,4 @@ private func notchAgentPill(_ title: String, symbol: String? = nil, prominent: B
         .contentShape(Capsule(style: .continuous))
     }
     .buttonStyle(NotchButtonStyle(cornerRadius: 10))
-}
-
-/// A Claude Code permission request, in place of the page until it is
-/// answered here, answered in the terminal, or handed back to the terminal.
-private struct NotchAgentApprovalCard: View {
-    let request: ClaudeApprovalRequest
-    @ObservedObject private var l10n = L10n.shared
-
-    private var text: ClaudeApprovalStrings { FeatureStrings.claudeApprovals(l10n.language) }
-
-    var body: some View {
-        NotchAgentCardChrome {
-            VStack(alignment: .leading, spacing: 6) {
-                NotchAgentCardHeader(title: "\(request.project) · \(request.toolName)", symbol: "checkmark.shield",
-                                     tint: .orange, provider: .claude) { EmptyView() }
-                Text(request.summary)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .help(request.summary)
-                Spacer(minLength: 0)
-                HStack(spacing: 6) {
-                    Spacer(minLength: 0)
-                    notchAgentPill(text.deny, prominent: false, tint: .orange) { answer(.deny) }
-                    if request.canAlways {
-                        notchAgentPill(text.always, prominent: false, tint: .orange) { answer(.always) }
-                            .help(text.alwaysHelp)
-                    }
-                    notchAgentPill(text.allow, tint: .orange) { answer(.allow) }
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(text.requestLabel)
-    }
-
-    private func answer(_ decision: ClaudeApprovalDecision) {
-        ClaudeApprovalService.shared.answer(decision, to: request)
-    }
 }
