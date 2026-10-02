@@ -876,6 +876,8 @@ enum DefaultsKey {
     static let notchAgentsLimitThreshold = "notchAgentsLimitThreshold"
     static let notchAgentsDailyBudget = "notchAgentsDailyBudget"
     static let notchAgentsPriceUpdates = "notchAgentsPriceUpdates"
+    // The terminal the Resume card starts sessions in; empty picks the newest session's.
+    static let notchAgentsOpenIn = "notchAgentsOpenIn"
     static let notchAgentApprovalsEnabled = "notchAgentApprovalsEnabled"
     static let notchEnabled = "notchEnabled"
     static let notchDisplay = "notchDisplay"
@@ -1458,6 +1460,7 @@ enum Defaults {
         DefaultsKey.notchAgentsLimitThreshold: NotchAgentSupport.defaultLimitThreshold,
         DefaultsKey.notchAgentsDailyBudget: 0.0,
         DefaultsKey.notchAgentsPriceUpdates: true,
+        DefaultsKey.notchAgentsOpenIn: "",
         DefaultsKey.notchAgentApprovalsEnabled: true,
         DefaultsKey.notchLyricsEnabled: true,
         DefaultsKey.notchLyricsOnline: false,

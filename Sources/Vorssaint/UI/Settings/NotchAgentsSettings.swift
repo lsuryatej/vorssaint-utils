@@ -24,6 +24,7 @@ struct NotchAgentsSettingsControls: View {
     @AppStorage(DefaultsKey.notchAgentsLimitThreshold) private var limitThreshold = NotchAgentSupport.defaultLimitThreshold
     @AppStorage(DefaultsKey.notchAgentsDailyBudget) private var dailyBudget = 0.0
     @AppStorage(DefaultsKey.notchAgentsPriceUpdates) private var priceUpdates = true
+    @AppStorage(DefaultsKey.notchAgentsOpenIn) private var openIn = ""
     @AppStorage(DefaultsKey.notchAgentApprovalsEnabled) private var approvalsEnabled = true
     @AppStorage(AppFeature.notchAgentApprovals.availabilityKey) private var approvalsInstalled = false
     @State private var hookStatus: [AgentProvider: ClaudeHookStatus] = [:]
@@ -33,6 +34,7 @@ struct NotchAgentsSettingsControls: View {
     @State private var dragging: NotchAgentCard?
     @State private var roots: [AgentProvider: Bool] = [:]
     @State private var claudeApp: URL?
+    @State private var terminals: [AgentLaunchTerminal] = []
     /// Read from the file while the section is off and the service is idle.
     @State private var claudeAppFileCheck: Date?
 
@@ -76,6 +78,15 @@ struct NotchAgentsSettingsControls: View {
             // The one card that makes Codex ask the account, said where it is chosen.
             if codex, cardBinding(.resets).wrappedValue {
                 Text(text.resetsHelp).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if cardBinding(.resume).wrappedValue {
+                SettingsMenuRow(symbol: "terminal", title: text.openIn, selection: $openIn) {
+                    Text(text.openInAutomatic).tag("")
+                    ForEach(terminals) { Text($0.displayName).tag($0.rawValue) }
+                }
+                .onAppear { terminals = AgentLaunchTerminal.allCases.filter(AgentLauncher.installed) }
+                Text(text.openInHint).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             SettingsChoiceRow(symbol: NotchAgentCard.limits.symbol, title: text.limitsAs, selection: $limitDisplay) {

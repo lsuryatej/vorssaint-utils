@@ -96,6 +96,8 @@ struct AgentUsageSnapshot: Equatable {
     var live: [AgentLiveSession] = []
     /// Every session on the board, working or not.
     var sessions: [AgentSessionRow] = []
+    /// Ended sessions that can be picked up again, newest first.
+    var resumable: [AgentResumableSession] = []
     var claudeBlock: AgentBlock?
     /// The last half hour, scaled to an hour.
     var burnRate: [AgentProvider: AgentTotals] = [:]

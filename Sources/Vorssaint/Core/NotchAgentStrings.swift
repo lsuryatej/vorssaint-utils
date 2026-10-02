@@ -102,6 +102,16 @@ struct NotchAgentStrings {
     let resetsUpdate: String
     let resetsCheckFailed: String
     let resetsHelp: String
+    let resumeCard: String
+    let newSession: String
+    let noRecent: String
+    let promptPlaceholder: String
+    let start: String
+    let openIn: String
+    let openInAutomatic: String
+    let openInHint: String
+    let copiedCommand: String
+    let launchFailed: String
 
     func tokens(_ count: String) -> String { String(format: tokensFormat, count) }
     func cached(_ share: String) -> String { String(format: cachedFormat, share) }
@@ -140,6 +150,7 @@ struct NotchAgentStrings {
         case .limits: return limitsCard
         case .spend: return spendCard
         case .live: return liveCard
+        case .resume: return resumeCard
         case .trend: return trendCard
         case .models: return modelsCard
         case .projects: return projectsCard
@@ -287,7 +298,17 @@ extension NotchAgentStrings {
         resetsSignIn: "Sign in to Codex with a plan to see resets",
         resetsUpdate: "Update Codex to use resets here",
         resetsCheckFailed: "Couldn’t check resets",
-        resetsHelp: "A reset renews the Codex session and weekly limits at once. Codex checks your resets with its own sign-in, which Vorssaint never reads.")
+        resetsHelp: "A reset renews the Codex session and weekly limits at once. Codex checks your resets with its own sign-in, which Vorssaint never reads.",
+        resumeCard: "Resume",
+        newSession: "New",
+        noRecent: "No ended sessions this week",
+        promptPlaceholder: "First prompt (optional)",
+        start: "Start",
+        openIn: "Open sessions in",
+        openInAutomatic: "Automatic",
+        openInHint: "Automatic uses the terminal of your newest session, else Terminal. VS Code opens the folder and copies the command to paste in its terminal.",
+        copiedCommand: "Command copied, paste it in the terminal",
+        launchFailed: "Couldn’t start the session")
 
     static let uk = NotchAgentStrings(
         title: "ШІ-агенти",
@@ -387,7 +408,17 @@ extension NotchAgentStrings {
         resetsSignIn: "Увійдіть у Codex із планом, щоб бачити скидання",
         resetsUpdate: "Оновіть Codex, щоб використовувати скидання тут",
         resetsCheckFailed: "Не вдалося перевірити скидання",
-        resetsHelp: "Скидання одразу поновлює ліміти сеансу й тижня Codex. Codex перевіряє ваші скидання через власний вхід, який Vorssaint ніколи не читає.")
+        resetsHelp: "Скидання одразу поновлює ліміти сеансу й тижня Codex. Codex перевіряє ваші скидання через власний вхід, який Vorssaint ніколи не читає.",
+        resumeCard: "Продовжити",
+        newSession: "Новий",
+        noRecent: "Цього тижня немає завершених сеансів",
+        promptPlaceholder: "Перший запит (необов’язково)",
+        start: "Почати",
+        openIn: "Відкривати сеанси в",
+        openInAutomatic: "Автоматично",
+        openInHint: "Автоматично використовується термінал вашого найновішого сеансу, інакше Термінал. VS Code відкриває теку й копіює команду, щоб вставити її в терміналі.",
+        copiedCommand: "Команду скопійовано, вставте її в терміналі",
+        launchFailed: "Не вдалося почати сеанс")
 
     static let ptBR = NotchAgentStrings(
         title: "Agentes de IA",
@@ -487,7 +518,17 @@ extension NotchAgentStrings {
         resetsSignIn: "Entre no Codex com um plano para ver as redefinições",
         resetsUpdate: "Atualize o Codex para usar as redefinições aqui",
         resetsCheckFailed: "Não foi possível verificar as redefinições",
-        resetsHelp: "Uma redefinição renova de uma vez os limites da sessão e da semana do Codex. O Codex verifica suas redefinições com o próprio login, que o Vorssaint nunca lê.")
+        resetsHelp: "Uma redefinição renova de uma vez os limites da sessão e da semana do Codex. O Codex verifica suas redefinições com o próprio login, que o Vorssaint nunca lê.",
+        resumeCard: "Retomar",
+        newSession: "Nova",
+        noRecent: "Nenhuma sessão encerrada nesta semana",
+        promptPlaceholder: "Primeiro prompt (opcional)",
+        start: "Iniciar",
+        openIn: "Abrir sessões em",
+        openInAutomatic: "Automático",
+        openInHint: "No modo automático, usa o terminal da sessão mais recente, senão o Terminal. O VS Code abre a pasta e copia o comando para colar no terminal dele.",
+        copiedCommand: "Comando copiado, cole no terminal",
+        launchFailed: "Não foi possível iniciar a sessão")
 
     static let es = NotchAgentStrings(
         title: "Agentes de IA",
@@ -587,7 +628,17 @@ extension NotchAgentStrings {
         resetsSignIn: "Inicia sesión en Codex con un plan para ver los reinicios",
         resetsUpdate: "Actualiza Codex para usar los reinicios aquí",
         resetsCheckFailed: "No se pudieron comprobar los reinicios",
-        resetsHelp: "Un reinicio renueva a la vez los límites de la sesión y de la semana de Codex. Codex comprueba tus reinicios con su propio inicio de sesión, que Vorssaint nunca lee.")
+        resetsHelp: "Un reinicio renueva a la vez los límites de la sesión y de la semana de Codex. Codex comprueba tus reinicios con su propio inicio de sesión, que Vorssaint nunca lee.",
+        resumeCard: "Reanudar",
+        newSession: "Nueva",
+        noRecent: "No hay sesiones terminadas esta semana",
+        promptPlaceholder: "Primer prompt (opcional)",
+        start: "Iniciar",
+        openIn: "Abrir sesiones en",
+        openInAutomatic: "Automático",
+        openInHint: "En automático se usa el terminal de tu sesión más reciente o, si no, Terminal. VS Code abre la carpeta y copia el comando para pegarlo en su terminal.",
+        copiedCommand: "Comando copiado, pégalo en el terminal",
+        launchFailed: "No se pudo iniciar la sesión")
 
     static let sk = NotchAgentStrings(
         title: "AI agenti",
@@ -687,7 +738,17 @@ extension NotchAgentStrings {
         resetsSignIn: "Prihláste sa do Codexu s plánom, aby ste videli obnovenia",
         resetsUpdate: "Aktualizujte Codex, aby ste tu mohli používať obnovenia",
         resetsCheckFailed: "Obnovenia sa nepodarilo skontrolovať",
-        resetsHelp: "Obnovenie naraz obnoví limity relácie aj týždňa v Codexe. Codex kontroluje vaše obnovenia vlastným prihlásením, ktoré Vorssaint nikdy nečíta.")
+        resetsHelp: "Obnovenie naraz obnoví limity relácie aj týždňa v Codexe. Codex kontroluje vaše obnovenia vlastným prihlásením, ktoré Vorssaint nikdy nečíta.",
+        resumeCard: "Pokračovať",
+        newSession: "Nová",
+        noRecent: "Tento týždeň žiadne ukončené relácie",
+        promptPlaceholder: "Prvý príkaz (voliteľné)",
+        start: "Spustiť",
+        openIn: "Otvárať relácie v",
+        openInAutomatic: "Automaticky",
+        openInHint: "Automaticky sa použije terminál vašej najnovšej relácie, inak Terminál. VS Code otvorí priečinok a skopíruje príkaz, ktorý vložíte do jeho terminálu.",
+        copiedCommand: "Príkaz skopírovaný, vložte ho do terminálu",
+        launchFailed: "Reláciu sa nepodarilo spustiť")
 
     static let de = NotchAgentStrings(
         title: "KI-Agenten",
@@ -787,7 +848,17 @@ extension NotchAgentStrings {
         resetsSignIn: "Melde dich in Codex mit einem Plan an, um Zurücksetzungen zu sehen",
         resetsUpdate: "Aktualisiere Codex, um Zurücksetzungen hier zu nutzen",
         resetsCheckFailed: "Zurücksetzungen konnten nicht geprüft werden",
-        resetsHelp: "Eine Zurücksetzung erneuert das Sitzungs- und das Wochenlimit von Codex auf einmal. Codex prüft deine Zurücksetzungen mit seiner eigenen Anmeldung, die Vorssaint nie liest.")
+        resetsHelp: "Eine Zurücksetzung erneuert das Sitzungs- und das Wochenlimit von Codex auf einmal. Codex prüft deine Zurücksetzungen mit seiner eigenen Anmeldung, die Vorssaint nie liest.",
+        resumeCard: "Fortsetzen",
+        newSession: "Neu",
+        noRecent: "Diese Woche keine beendeten Sitzungen",
+        promptPlaceholder: "Erster Prompt (optional)",
+        start: "Starten",
+        openIn: "Sitzungen öffnen in",
+        openInAutomatic: "Automatisch",
+        openInHint: "Automatisch nimmt das Terminal deiner neuesten Sitzung, sonst Terminal. VS Code öffnet den Ordner und kopiert den Befehl zum Einfügen in sein Terminal.",
+        copiedCommand: "Befehl kopiert, im Terminal einfügen",
+        launchFailed: "Sitzung konnte nicht gestartet werden")
 
     static let fr = NotchAgentStrings(
         title: "Agents IA",
@@ -887,7 +958,17 @@ extension NotchAgentStrings {
         resetsSignIn: "Connectez-vous à Codex avec un forfait pour voir les réinitialisations",
         resetsUpdate: "Mettez à jour Codex pour utiliser les réinitialisations ici",
         resetsCheckFailed: "Impossible de vérifier les réinitialisations",
-        resetsHelp: "Une réinitialisation renouvelle d’un coup les limites de la session et de la semaine de Codex. Codex vérifie vos réinitialisations avec sa propre connexion, que Vorssaint ne lit jamais.")
+        resetsHelp: "Une réinitialisation renouvelle d’un coup les limites de la session et de la semaine de Codex. Codex vérifie vos réinitialisations avec sa propre connexion, que Vorssaint ne lit jamais.",
+        resumeCard: "Reprendre",
+        newSession: "Nouvelle",
+        noRecent: "Aucune session terminée cette semaine",
+        promptPlaceholder: "Premier prompt (facultatif)",
+        start: "Démarrer",
+        openIn: "Ouvrir les sessions dans",
+        openInAutomatic: "Automatique",
+        openInHint: "En automatique, le terminal de votre session la plus récente est utilisé, sinon Terminal. VS Code ouvre le dossier et copie la commande à coller dans son terminal.",
+        copiedCommand: "Commande copiée, collez-la dans le terminal",
+        launchFailed: "Impossible de démarrer la session")
 
     static let it = NotchAgentStrings(
         title: "Agenti IA",
@@ -987,7 +1068,17 @@ extension NotchAgentStrings {
         resetsSignIn: "Accedi a Codex con un piano per vedere i ripristini",
         resetsUpdate: "Aggiorna Codex per usare i ripristini qui",
         resetsCheckFailed: "Impossibile controllare i ripristini",
-        resetsHelp: "Un ripristino rinnova insieme i limiti della sessione e della settimana di Codex. Codex controlla i tuoi ripristini con il proprio accesso, che Vorssaint non legge mai.")
+        resetsHelp: "Un ripristino rinnova insieme i limiti della sessione e della settimana di Codex. Codex controlla i tuoi ripristini con il proprio accesso, che Vorssaint non legge mai.",
+        resumeCard: "Riprendi",
+        newSession: "Nuova",
+        noRecent: "Nessuna sessione terminata questa settimana",
+        promptPlaceholder: "Primo prompt (facoltativo)",
+        start: "Avvia",
+        openIn: "Apri sessioni in",
+        openInAutomatic: "Automatico",
+        openInHint: "In automatico usa il terminale della sessione più recente, altrimenti Terminale. VS Code apre la cartella e copia il comando da incollare nel suo terminale.",
+        copiedCommand: "Comando copiato, incollalo nel terminale",
+        launchFailed: "Impossibile avviare la sessione")
 
     static let ru = NotchAgentStrings(
         title: "ИИ-агенты",
@@ -1087,7 +1178,17 @@ extension NotchAgentStrings {
         resetsSignIn: "Войдите в Codex с тарифом, чтобы видеть сбросы",
         resetsUpdate: "Обновите Codex, чтобы использовать сбросы здесь",
         resetsCheckFailed: "Не удалось проверить сбросы",
-        resetsHelp: "Сброс сразу обновляет лимиты сессии и недели Codex. Codex проверяет ваши сбросы через собственный вход, который Vorssaint никогда не читает.")
+        resetsHelp: "Сброс сразу обновляет лимиты сессии и недели Codex. Codex проверяет ваши сбросы через собственный вход, который Vorssaint никогда не читает.",
+        resumeCard: "Продолжить",
+        newSession: "Новый",
+        noRecent: "На этой неделе нет завершённых сессий",
+        promptPlaceholder: "Первый запрос (необязательно)",
+        start: "Начать",
+        openIn: "Открывать сессии в",
+        openInAutomatic: "Автоматически",
+        openInHint: "Автоматически используется терминал вашей последней сессии, иначе Терминал. VS Code открывает папку и копирует команду, чтобы вставить её в терминале.",
+        copiedCommand: "Команда скопирована, вставьте её в терминале",
+        launchFailed: "Не удалось начать сессию")
 
     static let tr = NotchAgentStrings(
         title: "YZ Ajanları",
@@ -1187,7 +1288,17 @@ extension NotchAgentStrings {
         resetsSignIn: "Sıfırlamaları görmek için Codex’te bir planla oturum açın",
         resetsUpdate: "Sıfırlamaları burada kullanmak için Codex’i güncelleyin",
         resetsCheckFailed: "Sıfırlamalar denetlenemedi",
-        resetsHelp: "Bir sıfırlama, Codex’in oturum ve haftalık sınırlarını tek seferde yeniler. Codex sıfırlamalarınızı kendi oturum açma bilgisiyle denetler. Vorssaint bunu hiçbir zaman okumaz.")
+        resetsHelp: "Bir sıfırlama, Codex’in oturum ve haftalık sınırlarını tek seferde yeniler. Codex sıfırlamalarınızı kendi oturum açma bilgisiyle denetler. Vorssaint bunu hiçbir zaman okumaz.",
+        resumeCard: "Sürdür",
+        newSession: "Yeni",
+        noRecent: "Bu hafta biten oturum yok",
+        promptPlaceholder: "İlk istem (isteğe bağlı)",
+        start: "Başlat",
+        openIn: "Oturumları şurada aç",
+        openInAutomatic: "Otomatik",
+        openInHint: "Otomatik seçenek en yeni oturumunuzun terminalini, yoksa Terminal’i kullanır. VS Code klasörü açar ve komutu terminaline yapıştırmanız için kopyalar.",
+        copiedCommand: "Komut kopyalandı, terminale yapıştırın",
+        launchFailed: "Oturum başlatılamadı")
 
     static let ja = NotchAgentStrings(
         title: "AIエージェント",
@@ -1287,7 +1398,17 @@ extension NotchAgentStrings {
         resetsSignIn: "リセットを見るには、プランでCodexにサインインしてください",
         resetsUpdate: "ここでリセットを使うにはCodexをアップデートしてください",
         resetsCheckFailed: "リセットを確認できませんでした",
-        resetsHelp: "リセットを使うと、Codexのセッションと週の上限が同時に回復します。Codexは独自のサインイン情報でリセットを確認し、Vorssaintがそれを読み取ることはありません。")
+        resetsHelp: "リセットを使うと、Codexのセッションと週の上限が同時に回復します。Codexは独自のサインイン情報でリセットを確認し、Vorssaintがそれを読み取ることはありません。",
+        resumeCard: "再開",
+        newSession: "新規",
+        noRecent: "今週終了したセッションはありません",
+        promptPlaceholder: "最初のプロンプト（省略可）",
+        start: "開始",
+        openIn: "セッションを開くアプリ",
+        openInAutomatic: "自動",
+        openInHint: "自動では最新のセッションのターミナルを使い、なければターミナルを使います。VS Codeではフォルダが開き、ターミナルに貼り付けるコマンドがコピーされます。",
+        copiedCommand: "コマンドをコピーしました。ターミナルに貼り付けてください",
+        launchFailed: "セッションを開始できませんでした")
 
     static let ko = NotchAgentStrings(
         title: "AI 에이전트",
@@ -1387,7 +1508,17 @@ extension NotchAgentStrings {
         resetsSignIn: "초기화를 보려면 플랜으로 Codex에 로그인하세요",
         resetsUpdate: "여기서 초기화를 사용하려면 Codex를 업데이트하세요",
         resetsCheckFailed: "초기화를 확인할 수 없습니다",
-        resetsHelp: "초기화를 사용하면 Codex의 세션 및 주간 한도가 한 번에 갱신됩니다. Codex는 자체 로그인으로 초기화를 확인하며, Vorssaint는 이를 읽지 않습니다.")
+        resetsHelp: "초기화를 사용하면 Codex의 세션 및 주간 한도가 한 번에 갱신됩니다. Codex는 자체 로그인으로 초기화를 확인하며, Vorssaint는 이를 읽지 않습니다.",
+        resumeCard: "재개",
+        newSession: "새로 만들기",
+        noRecent: "이번 주에 끝난 세션 없음",
+        promptPlaceholder: "첫 프롬프트(선택 사항)",
+        start: "시작",
+        openIn: "세션을 열 앱",
+        openInAutomatic: "자동",
+        openInHint: "자동은 가장 최근 세션의 터미널을, 없으면 터미널을 사용합니다. VS Code는 폴더를 열고 터미널에 붙여 넣을 명령을 복사합니다.",
+        copiedCommand: "명령을 복사했습니다. 터미널에 붙여 넣으세요",
+        launchFailed: "세션을 시작할 수 없음")
 
     static let zhHans = NotchAgentStrings(
         title: "AI 智能体",
@@ -1487,7 +1618,17 @@ extension NotchAgentStrings {
         resetsSignIn: "使用套餐登录 Codex 后即可查看重置",
         resetsUpdate: "请更新 Codex 以在此使用重置",
         resetsCheckFailed: "无法检查重置",
-        resetsHelp: "一次重置会同时恢复 Codex 的会话额度和每周额度。Codex 用自己的登录信息检查你的重置，Vorssaint 从不读取这些信息。")
+        resetsHelp: "一次重置会同时恢复 Codex 的会话额度和每周额度。Codex 用自己的登录信息检查你的重置，Vorssaint 从不读取这些信息。",
+        resumeCard: "恢复",
+        newSession: "新建",
+        noRecent: "本周没有已结束的会话",
+        promptPlaceholder: "首个提示（可选）",
+        start: "开始",
+        openIn: "在此打开会话",
+        openInAutomatic: "自动",
+        openInHint: "自动会使用最新会话所在的终端，否则使用“终端”。VS Code 会打开文件夹，并复制命令供你粘贴到它的终端。",
+        copiedCommand: "命令已复制，请粘贴到终端",
+        launchFailed: "无法开始会话")
 
     static let zhTW = NotchAgentStrings(
         title: "AI 代理",
@@ -1587,7 +1728,17 @@ extension NotchAgentStrings {
         resetsSignIn: "使用方案登入 Codex 後即可查看重設",
         resetsUpdate: "請更新 Codex 以在此使用重設",
         resetsCheckFailed: "無法檢查重設",
-        resetsHelp: "一次重設會同時恢復 Codex 的工作階段額度和每週額度。Codex 用自己的登入資訊檢查你的重設，Vorssaint 從不讀取這些資訊。")
+        resetsHelp: "一次重設會同時恢復 Codex 的工作階段額度和每週額度。Codex 用自己的登入資訊檢查你的重設，Vorssaint 從不讀取這些資訊。",
+        resumeCard: "恢復",
+        newSession: "新增",
+        noRecent: "本週沒有已結束的工作階段",
+        promptPlaceholder: "第一個提示（選填）",
+        start: "開始",
+        openIn: "在此打開工作階段",
+        openInAutomatic: "自動",
+        openInHint: "自動會使用最新工作階段所在的終端機，否則使用「終端機」。VS Code 會打開資料夾，並拷貝指令供你貼到它的終端機。",
+        copiedCommand: "已拷貝指令，請貼到終端機",
+        launchFailed: "無法開始工作階段")
 
     static let zhHK = NotchAgentStrings(
         title: "AI 代理",
@@ -1687,5 +1838,15 @@ extension NotchAgentStrings {
         resetsSignIn: "使用計劃登入 Codex 後即可查看重設",
         resetsUpdate: "請更新 Codex 以在此使用重設",
         resetsCheckFailed: "無法檢查重設",
-        resetsHelp: "一次重設會同時恢復 Codex 的工作階段額度和每週額度。Codex 用自己的登入資料檢查你的重設，Vorssaint 從不讀取這些資料。")
+        resetsHelp: "一次重設會同時恢復 Codex 的工作階段額度和每週額度。Codex 用自己的登入資料檢查你的重設，Vorssaint 從不讀取這些資料。",
+        resumeCard: "恢復",
+        newSession: "新增",
+        noRecent: "本週沒有已結束的工作階段",
+        promptPlaceholder: "第一個提示（可選填）",
+        start: "開始",
+        openIn: "在此開啟工作階段",
+        openInAutomatic: "自動",
+        openInHint: "自動會使用最新工作階段所在的終端機，否則使用「終端機」。VS Code 會開啟資料夾，並複製指令讓你貼上到它的終端機。",
+        copiedCommand: "已複製指令，請貼上到終端機",
+        launchFailed: "無法開始工作階段")
 }

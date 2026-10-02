@@ -59,8 +59,58 @@ final class AgentUsageStore {
                   calendar: Calendar = .current) -> AgentUsageSnapshot {
         var snapshot = summary.snapshot(records: records, limits: limits, live: live, plans: plans,
                                         providers: providers, now: now, calendar: calendar)
-        snapshot.sessions = sessions(now: now).filter { providers.contains($0.provider) }
+        let board = sessions(now: now)
+        snapshot.sessions = board.filter { providers.contains($0.provider) }
+        snapshot.resumable = resumable(board: board, now: now).filter { providers.contains($0.provider) }
         return snapshot
+    }
+
+    /// How far back the Resume card looks.
+    static let resumeHistory: TimeInterval = 7 * 86_400
+    /// The folder each log names on its first lines, by log file; empty when
+    /// it names none. Read once, kept in memory only.
+    private var folders: [String: String] = [:]
+    var readFolder: (String) -> String = AgentUsageStore.folder(ofLog:)
+
+    static func folder(ofLog path: String) -> String {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return "" }
+        defer { try? handle.close() }
+        return (try? handle.read(upToCount: 256 << 10)).flatMap(AgentLaunchSupport.folder(head:)) ?? ""
+    }
+
+    /// Sessions of the last week no board row and no running process holds,
+    /// newest first, with what their responses cost in that week.
+    // ponytail: scans every record per publish (a date compare each); keep a
+    // per-session index in `add` if months of history make it show.
+    func resumable(board: [AgentSessionRow], now: Date, limit: Int = 12) -> [AgentResumableSession] {
+        let horizon = now.addingTimeInterval(-Self.resumeHistory)
+        var newest: [String: (position: Int, cost: Double)] = [:]
+        for position in records.indices {
+            let record = records[position]
+            guard record.date >= horizon, record.provider != .opencode, !record.session.isEmpty else { continue }
+            var entry = newest[record.session] ?? (position, 0)
+            if record.date > records[entry.position].date { entry.position = position }
+            entry.cost += record.cost ?? 0
+            newest[record.session] = entry
+        }
+        // Claude rows go by session id, Codex rows by log file.
+        let shown = Set(board.map(\.id)).union(processes.running)
+        var found: [AgentResumableSession] = []
+        for (session, entry) in newest.sorted(by: { records[$0.value.position].date > records[$1.value.position].date }) {
+            let record = records[entry.position]
+            // ponytail: a Codex session idle at its prompt past the board's window
+            // still lists; a process scan by folder would tell.
+            guard let file = sources[entry.position].first, !shown.contains(session), !shown.contains(file),
+                  // A Codex side thread resumes with the thread that started it.
+                  record.provider == .claude || !(file as NSString).lastPathComponent.contains("_") else { continue }
+            let cwd = folders[file] ?? readFolder(file)
+            folders[file] = cwd
+            guard !cwd.isEmpty else { continue }
+            found.append(AgentResumableSession(id: session, provider: record.provider, project: record.project,
+                                               cwd: cwd, lastActivity: record.date, cost: entry.cost))
+            if found.count == limit { break }
+        }
+        return found
     }
 
     /// Applies one file's entries and returns the turns they finished.

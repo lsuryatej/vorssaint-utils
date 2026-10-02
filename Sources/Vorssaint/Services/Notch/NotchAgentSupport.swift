@@ -7,7 +7,7 @@ import Foundation
 /// The cards the AI page can show, in the order a person arranges them. Raw
 /// values are stored in the saved order, so cases are never renamed.
 enum NotchAgentCard: String, CaseIterable, Identifiable {
-    case limits, spend, live, trend, models, projects, activity, resets
+    case limits, spend, live, resume, trend, models, projects, activity, resets
 
     var id: String { rawValue }
 
@@ -16,6 +16,7 @@ enum NotchAgentCard: String, CaseIterable, Identifiable {
         case .limits: return "gauge.with.dots.needle.33percent"
         case .spend: return "dollarsign.circle"
         case .live: return "waveform.path.ecg"
+        case .resume: return "clock.arrow.circlepath"
         case .trend: return "chart.bar.xaxis"
         case .models: return "cpu"
         case .projects: return "folder"
@@ -107,6 +108,11 @@ enum NotchAgentSupport {
     static func cards(in defaults: UserDefaults = .standard) -> [NotchAgentCard] {
         let hidden = hiddenCards(in: defaults)
         return orderedCards(in: defaults).filter { !hidden.contains($0) }
+    }
+
+    /// The terminal sessions start in; empty leaves it to the app.
+    static func openIn(in defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: DefaultsKey.notchAgentsOpenIn) ?? ""
     }
 
     static func period(in defaults: UserDefaults = .standard) -> AgentPeriod {

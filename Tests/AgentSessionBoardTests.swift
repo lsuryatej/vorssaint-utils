@@ -33,6 +33,8 @@ enum AgentSessionBoardTests {
 
     static func run(_ suite: TestSuite) {
         jump(suite)
+        launch(suite)
+        resumable(suite)
         let now = start.addingTimeInterval(600)
         let tokens = AgentTokens(input: 100, output: 20)
         let usage = AgentUsageRecord(provider: .claude, date: start.addingTimeInterval(5), model: "claude-opus-5-5",
@@ -212,5 +214,95 @@ enum AgentSessionBoardTests {
         suite.expect(MixerRoutingSupport.owningRegularAppPid(responsiblePid: 72857, isRegularApp: { $0 == 33400 },
                                                              parentPid: { parents[$0] ?? 0 }) == 33400,
                      "a VS Code terminal session resolves past Code Helper to Code")
+    }
+
+    /// What a Resume click or a new session types into the terminal.
+    private static func launch(_ suite: TestSuite) {
+        let claudeHead = Data("""
+            {"type":"last-prompt","sessionId":"s1"}
+            {"type":"attachment","cwd":"relative"}
+            {"type":"user","cwd":"/Users/me/code/app","sessionId":"s1"}
+            """.utf8)
+        let codexHead = Data(#"{"timestamp":"2026-10-01T10:00:00Z","type":"session_meta","payload":{"id":"r1","cwd":"/Users/me/proj"}}"#.utf8)
+        suite.expect(AgentLaunchSupport.folder(head: claudeHead) == "/Users/me/code/app"
+                     && AgentLaunchSupport.folder(head: codexHead) == "/Users/me/proj"
+                     && AgentLaunchSupport.folder(head: Data(#"{"type":"mode"}"#.utf8)) == nil,
+                     "a log's first lines give the folder its session ran in")
+
+        let session = AgentResumableSession(id: "s1", provider: .claude, project: "app", cwd: "/Users/me/it's here",
+                                            lastActivity: start, cost: 1)
+        suite.expect(AgentLaunchSupport.resumeCommand(session) == #"cd '/Users/me/it'\''s here' && claude --resume 's1'"#,
+                     "a Claude session resumes by id from its folder, quoted")
+        let codex = AgentResumableSession(id: "r1", provider: .codex, project: "p", cwd: "/p", lastActivity: start, cost: 0)
+        let opencode = AgentResumableSession(id: "o1", provider: .opencode, project: "p", cwd: "/p", lastActivity: start, cost: 0)
+        suite.expect(AgentLaunchSupport.resumeCommand(codex) == "cd '/p' && codex resume 'r1'"
+                     && AgentLaunchSupport.resumeCommand(opencode) == nil, "Codex resumes by id; OpenCode is not offered")
+        suite.expect(AgentLaunchSupport.startCommand(provider: .claude, cwd: "/p", prompt: "  \n ") == "cd '/p' && claude",
+                     "a blank prompt starts a plain session")
+        suite.expect(AgentLaunchSupport.startCommand(provider: .codex, cwd: "/p", prompt: "fix $(rm -rf ~) `id`;\nthen | go") ==
+                        #"cd '/p' && codex 'fix $(rm -rf ~) `id`; then | go'"#,
+                     "the prompt stays one literal argument on one line")
+
+        let installed: (AgentLaunchTerminal) -> Bool = { $0 != .iTerm2 }
+        suite.expect(AgentLaunchSupport.destination(setting: "ghostty", detected: .vscode, installed: installed) == .ghostty
+                     && AgentLaunchSupport.destination(setting: "iTerm2", detected: .vscode, installed: installed) == .vscode
+                     && AgentLaunchSupport.destination(setting: "", detected: nil, installed: installed) == .terminal,
+                     "the chosen terminal while installed, else the newest session's, else Terminal")
+        suite.expect(AgentLaunchTerminal(bundleIdentifier: "com.mitchellh.ghostty") == .ghostty
+                     && AgentLaunchTerminal(bundleIdentifier: "com.todesktop.230313mzl4w4u92") == nil,
+                     "only terminals a session can be started in are detected")
+
+        let command = #"cd '/a "b"\c' && claude"#
+        let escaped = #""cd '/a \"b\"\\c' && claude""#
+        if case .script(let bundle, let source) = AgentLaunchSupport.plan(command, cwd: "/a", in: .terminal) {
+            suite.expect(bundle == "com.apple.Terminal" && source.contains("do script \(escaped)"),
+                         "Terminal types the escaped command into a new window")
+        } else { suite.expect(false, "Terminal is scripted") }
+        if case .script(_, let source) = AgentLaunchSupport.plan(command, cwd: "/a", in: .iTerm2) {
+            suite.expect(source.contains("write text \(escaped)"), "iTerm2 writes the escaped command into a new tab")
+        } else { suite.expect(false, "iTerm2 is scripted") }
+        if case .script(_, let source) = AgentLaunchSupport.plan(command, cwd: #"/a "b""#, in: .ghostty) {
+            suite.expect(source.contains(#"initial working directory of config to "/a \"b\"""#)
+                         && source.contains("initial input of config to \(escaped) & linefeed"),
+                         "Ghostty opens a tab in the folder and types the command")
+        } else { suite.expect(false, "Ghostty is scripted") }
+        suite.expect(AgentLaunchSupport.plan("x", cwd: "/a", in: .vscode)
+                        == .openFolder(bundleID: "com.microsoft.VSCode", folder: "/a", copying: "x"),
+                     "VS Code opens the folder and copies the command")
+    }
+
+    /// Ended sessions of the last week, newest first, with nothing live.
+    private static func resumable(_ suite: TestSuite) {
+        let now = start.addingTimeInterval(10 * 86_400)
+        let store = store(registry([record("running", busy: false)]))
+        var reads: [String] = []
+        store.readFolder = { path in
+            reads.append(path)
+            return path.contains("nofolder") ? "" : "/code/" + ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+        }
+        func use(_ session: String, _ provider: AgentProvider = .claude, file: String? = nil, ago: TimeInterval, cost: Double) {
+            let record = AgentUsageRecord(provider: provider, date: now.addingTimeInterval(-ago), model: "m", project: session,
+                                          session: session, tokens: AgentTokens(input: 1), cost: cost, savings: 0)
+            store.apply([.usage(key: "\(session):\(ago)", record: record, billable: AgentBillable())],
+                        file: file ?? "/logs/\(session).jsonl", provider: provider, tracksTurns: false, modified: record.date)
+        }
+        use("old", ago: 3600, cost: 1)
+        use("old", ago: 7200, cost: 2)
+        use("new", ago: 60, cost: 0.5)
+        use("running", ago: 30, cost: 1)
+        use("stale", ago: 8 * 86_400, cost: 1)
+        use("nofolder", ago: 100, cost: 1)
+        use("o", .opencode, ago: 100, cost: 1)
+        use("r1", .codex, file: "/logs/rollout-1-r1.jsonl", ago: 120, cost: 1)
+        use("side", .codex, file: "/logs/rollout-1-r1_side.jsonl", ago: 110, cost: 1)
+        let found = store.resumable(board: [], now: now)
+        suite.expect(found.map(\.id) == ["new", "r1", "old"] && found.last?.cost == 3 && found.last?.cwd == "/code/old",
+                     "sessions group their cost, newest first, without running, stale, folderless or side ones")
+        let codexRow = AgentSessionRow(id: "/logs/rollout-1-r1.jsonl", provider: .codex, project: "r1", name: nil, pid: nil,
+                                       cwd: nil, started: now, since: now, model: "", tokens: AgentTokens(), cost: 0, activity: .quiet)
+        let readsBefore = reads.count
+        suite.expect(store.resumable(board: [codexRow], now: now, limit: 1).map(\.id) == ["new"],
+                     "a session on the board is not offered, and the list keeps to its limit")
+        suite.expect(reads.count == readsBefore, "each log's folder is read once")
     }
 }

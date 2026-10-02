@@ -94,6 +94,8 @@ struct NotchAgentsView: View {
             NotchAgentSpendCard(snapshot: snapshot, providers: providers, period: $period, text: text)
         case .live:
             NotchAgentLiveCard(snapshot: snapshot, providers: providers, approval: approvals.pending, text: text)
+        case .resume:
+            NotchAgentResumeCard(snapshot: snapshot, providers: providers, now: now, text: text)
         case .trend:
             NotchAgentTrendCard(snapshot: snapshot, providers: providers, period: shown, text: text)
         case .models:
@@ -925,6 +927,151 @@ private struct NotchAgentResetsCard: View {
     private func pill(_ title: String, symbol: String? = nil, prominent: Bool = true,
                       action: @escaping () -> Void) -> some View {
         notchAgentPill(title, symbol: symbol, prominent: prominent, tint: tint, action: action)
+    }
+}
+
+// MARK: Resume
+
+/// Ended sessions to pick up again, and a new session started in a folder
+/// an agent worked in. Only the folder, the session id and the prompt typed
+/// here reach the terminal.
+private struct NotchAgentResumeCard: View {
+    let snapshot: AgentUsageSnapshot
+    let providers: [AgentProvider]
+    let now: Date
+    let text: NotchAgentStrings
+    @ObservedObject private var l10n = L10n.shared
+    @State private var composing = false
+    @State private var folder = ""
+    @State private var agent = AgentProvider.claude
+    @State private var prompt = ""
+    @State private var outcome: (result: AgentLauncher.Outcome, date: Date)?
+    @Environment(\.locale) private var locale
+
+    private var sessions: [AgentResumableSession] { snapshot.resumable.filter { providers.contains($0.provider) } }
+    private var agents: [AgentProvider] { providers.filter { $0 != .opencode } }
+
+    /// The folders sessions run in now, then those of ended ones, newest first.
+    private var folders: [String] {
+        var seen = Set<String>()
+        let running = snapshot.sessions.sorted { $0.since > $1.since }.compactMap(\.cwd)
+        return Array((running + sessions.map(\.cwd)).filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(8))
+    }
+
+    /// What a launch did stays on the card for a few seconds.
+    private var note: String? {
+        guard let outcome, now.timeIntervalSince(outcome.date) < 8 else { return nil }
+        switch outcome.result {
+        case .copied: return text.copiedCommand
+        case .failed: return text.launchFailed
+        case .started: return nil
+        }
+    }
+
+    var body: some View {
+        NotchAgentCardChrome {
+            VStack(alignment: .leading, spacing: 6) {
+                NotchAgentCardHeader(title: text.resumeCard, symbol: NotchAgentCard.resume.symbol) {
+                    if composing {
+                        notchAgentPill(FeatureStrings.clipboard(l10n.language).cancel, prominent: false, tint: .white) {
+                            composing = false
+                        }
+                    } else if !agents.isEmpty, !folders.isEmpty {
+                        notchAgentPill(text.newSession, symbol: "plus", prominent: false, tint: .white) { compose() }
+                    }
+                }
+                if let note {
+                    Text(note).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(2)
+                } else if composing {
+                    launcher
+                } else if sessions.isEmpty {
+                    Text(text.noRecent).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(2)
+                } else {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(sessions.prefix(3)) { row($0) }
+                    }
+                }
+            }
+        }
+        .onExitCommand { composing = false }
+    }
+
+    private func row(_ session: AgentResumableSession) -> some View {
+        let command = AgentLaunchSupport.resumeCommand(session)
+        return Button { if let command { launch(command, in: session.cwd) } } label: {
+            HStack(spacing: 4) {
+                NotchAgentGlyph(provider: session.provider, size: 9, working: false)
+                Text(session.project.isEmpty ? session.provider.displayName : session.project)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                if session.cost > 0 {
+                    Text(AgentFormat.cost(session.cost))
+                        .font(.system(size: 9.5)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
+                }
+                Text(session.lastActivity.formatted(.relative(presentation: .named, unitsStyle: .abbreviated).locale(locale)))
+                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(height: 15)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(NotchButtonStyle(cornerRadius: 5))
+        .disabled(command == nil)
+        .help([session.cwd, command ?? ""].filter { !$0.isEmpty }.joined(separator: "\n"))
+    }
+
+    private var launcher: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                NotchMenuButton(title: text.newSession, items: folders.map { path in
+                    NotchMenuItem(title: AgentLogParser.projectName(path), checked: path == folder) { folder = path }
+                }) { menuLabel(AgentLogParser.projectName(folder)) }
+                if agents.count > 1 {
+                    NotchMenuButton(title: agent.displayName, items: agents.map { option in
+                        NotchMenuItem(title: option.displayName, checked: option == agent) { agent = option }
+                    }) { menuLabel(agent.displayName) }
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 6) {
+                TextField(text.promptPlaceholder, text: $prompt)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .padding(.horizontal, 8)
+                    .frame(height: 20)
+                    .background(.white.opacity(0.08), in: Capsule(style: .continuous))
+                    .onSubmit(start)
+                notchAgentPill(text.start, symbol: "play.fill", tint: agent.tint, action: start)
+            }
+        }
+    }
+
+    private func menuLabel(_ title: String) -> some View {
+        Text("\(title) \(Image(systemName: "chevron.down"))")
+            .font(.system(size: 10.5, weight: .medium))
+            .foregroundStyle(.white.opacity(0.85))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, 4)
+            .contentShape(Rectangle())
+    }
+
+    private func compose() {
+        folder = folders.first ?? ""
+        if !agents.contains(agent) { agent = agents.first ?? .claude }
+        prompt = ""
+        composing = true
+    }
+
+    private func start() {
+        guard let command = AgentLaunchSupport.startCommand(provider: agent, cwd: folder, prompt: prompt) else { return }
+        composing = false
+        launch(command, in: folder)
+    }
+
+    private func launch(_ command: String, in cwd: String) {
+        outcome = (AgentLauncher.run(command, cwd: cwd, board: snapshot.sessions), Date())
     }
 }
 
