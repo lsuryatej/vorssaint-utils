@@ -50,6 +50,9 @@ enum AgentSessionBoardTests {
         suite.expect(AgentSessionBoard.row(for: approval(transcript: "/p/a.jsonl"), in: rows)?.pid == 1
                      && AgentSessionBoard.row(for: approval(transcript: "/p/z.jsonl"), in: rows) == nil,
                      "an approval's header jumps through its board row")
+        suite.expect(AgentSessionBoard.row(for: approval(transcript: nil, cwd: "/code/a"), in: rows) == nil
+                     && AgentSessionBoard.row(for: approval(transcript: nil, cwd: "/elsewhere/a", agent: .codex), in: rows) == nil,
+                     "without a transcript, a folder label never picks the row to jump to")
         suite.expect(rows.count == 2 && a?.activity == .working && a?.model == "claude-opus-5-5" && a?.cost == 0.5
                         && a?.name == "a-1" && a?.project == "a" && a?.pid == 1,
                      "a busy session works with its turn's model and cost")
@@ -189,6 +192,12 @@ enum AgentSessionBoardTests {
                      && AgentJumpSupport.vsCodeWindow(titles: titles, cwd: "/code/vorssaint-utils/.claude/worktrees/feat-x") == 2
                      && AgentJumpSupport.vsCodeWindow(titles: titles, cwd: "/code/none") == nil,
                      "the window naming the deepest folder of the session wins")
+        let twins = ["a.swift — repo — Visual Studio Code", "b.swift — repo — Visual Studio Code"]
+        suite.expect(AgentJumpSupport.vsCodeWindow(titles: twins, cwd: "/work/repo") == nil
+                     && AgentJumpSupport.vsCodeWindow(titles: twins, cwd: "/play/repo/Sources") == nil,
+                     "two windows naming the same folder leave the choice to VS Code")
+        suite.expect(ghostty.contains(#"if (count of found) is not 1 then return "no""#),
+                     "Ghostty focuses a terminal only when no other shares its folder")
 
         let meta = AgentJumpSupport.codexMeta(firstLine: Data(#"""
             {"timestamp":"2026-10-01T10:00:00.000Z","type":"session_meta","payload":{"id":"r1","cwd":"/Users/me/proj"}}
@@ -199,15 +208,22 @@ enum AgentSessionBoardTests {
                      && AgentJumpSupport.codexMeta(firstLine: Data("not json".utf8)) == nil,
                      "only a session_meta line names the rollout")
         let at = meta?.started ?? start
-        let other = AgentSessionProcess(pid: 1, cwd: "/Users/me/other", started: at)
-        let fresh = AgentSessionProcess(pid: 2, cwd: "/Users/me/proj", started: at.addingTimeInterval(-3))
-        let resumed = AgentSessionProcess(pid: 3, cwd: "/Users/me/proj/", started: at.addingTimeInterval(7200))
-        suite.expect(AgentJumpSupport.codexProcess(cwd: "/Users/me/proj", started: at, among: [other, resumed, fresh]) == fresh,
-                     "the codex in the rollout's folder that started closest wins")
-        suite.expect(AgentJumpSupport.codexProcess(cwd: "/Users/me/proj", started: at, among: [other, resumed]) == resumed,
-                     "a resumed session started long after its rollout still matches")
-        suite.expect(AgentJumpSupport.codexProcess(cwd: "/Users/me/proj", started: at, among: [other]) == nil,
-                     "no codex in the folder, no jump")
+        let rollout = "/Users/me/.codex/sessions/2026/10/01/rollout-r1.jsonl"
+        let other = AgentSessionProcess(pid: 1, cwd: "/Users/me/other", started: at,
+                                        rollouts: ["/Users/me/.codex/sessions/2026/10/01/rollout-r9.jsonl"])
+        let sameFolder = AgentSessionProcess(pid: 2, cwd: "/Users/me/proj", started: at.addingTimeInterval(-3))
+        let resumed = AgentSessionProcess(pid: 3, cwd: "/Users/me/proj", started: at.addingTimeInterval(7200),
+                                          rollouts: [rollout])
+        suite.expect(AgentJumpSupport.codexProcess(rollout: rollout, among: [other, sameFolder, resumed]) == resumed,
+                     "the codex holding the rollout open owns it, whenever it started")
+        suite.expect(AgentJumpSupport.codexProcess(rollout: "/Users/me/.codex/sessions/2026/10/../10/01/rollout-r1.jsonl",
+                                                   among: [resumed]) == resumed,
+                     "the rollout path is compared in its standard form")
+        suite.expect(AgentJumpSupport.codexProcess(rollout: rollout, among: [other, sameFolder]) == nil,
+                     "an ended session never picks another codex running in its folder")
+        let twin = AgentSessionProcess(pid: 4, cwd: "/Users/me/proj", started: at, rollouts: [rollout])
+        suite.expect(AgentJumpSupport.codexProcess(rollout: rollout, among: [resumed, twin]) == nil,
+                     "two processes holding one rollout identify neither")
 
         // claude → fish → Code Helper → Code, as seen with VS Code here; only Code is a regular app.
         let parents: [pid_t: pid_t] = [72857: 72000, 72000: 33448, 33448: 33400, 33400: 1]
@@ -240,8 +256,18 @@ enum AgentSessionBoardTests {
         suite.expect(AgentLaunchSupport.startCommand(provider: .claude, cwd: "/p", prompt: "  \n ") == "cd '/p' && claude",
                      "a blank prompt starts a plain session")
         suite.expect(AgentLaunchSupport.startCommand(provider: .codex, cwd: "/p", prompt: "fix $(rm -rf ~) `id`;\nthen | go") ==
-                        #"cd '/p' && codex 'fix $(rm -rf ~) `id`; then | go'"#,
+                        #"cd '/p' && codex -- 'fix $(rm -rf ~) `id`; then | go'"#,
                      "the prompt stays one literal argument on one line")
+        suite.expect(AgentLaunchSupport.startCommand(provider: .claude, cwd: "/p", prompt: "--help") ==
+                        "cd '/p' && claude -- '--help'",
+                     "a prompt that looks like an option is still sent as the prompt")
+        let titles = AgentLaunchSupport.folderTitles(["/Users/me/code/app", "/Users/me/code/app/.claude/worktrees/feat-x",
+                                                      "/Users/me/code/site", "/opt/app"], home: "/Users/me")
+        suite.expect(titles["/Users/me/code/site"] == "site"
+                     && titles["/Users/me/code/app"] == "~/code/app"
+                     && titles["/Users/me/code/app/.claude/worktrees/feat-x"] == "~/code/app/.claude/worktrees/feat-x"
+                     && titles["/opt/app"] == "/opt/app",
+                     "folders sharing a project name show their paths, so each launch destination reads apart")
 
         let installed: (AgentLaunchTerminal) -> Bool = { $0 != .iTerm2 }
         suite.expect(AgentLaunchSupport.destination(setting: "ghostty", detected: .vscode, installed: installed) == .ghostty
@@ -276,6 +302,9 @@ enum AgentSessionBoardTests {
         let now = start.addingTimeInterval(10 * 86_400)
         let store = store(registry([record("running", busy: false)]))
         var reads: [String] = []
+        var held: Set<String> = []
+        var scans = 0
+        store.heldRollouts = { scans += 1; return held }
         store.readFolder = { path in
             reads.append(path)
             return path.contains("nofolder") ? "" : "/code/" + ((path as NSString).lastPathComponent as NSString).deletingPathExtension
@@ -304,5 +333,17 @@ enum AgentSessionBoardTests {
         suite.expect(store.resumable(board: [codexRow], now: now, limit: 1).map(\.id) == ["new"],
                      "a session on the board is not offered, and the list keeps to its limit")
         suite.expect(reads.count == readsBefore, "each log's folder is read once")
+
+        held = ["/logs/rollout-1-r1.jsonl"]
+        scans = 0
+        suite.expect(store.resumable(board: [], now: now).map(\.id) == ["new", "old"] && scans == 1,
+                     "a Codex session whose rollout a running codex holds is never offered, past its board row too")
+
+        let live = AgentUsageStore()
+        live.readFolder = { _ in "/code/proj" }
+        live.apply([.turnBegan(now)], file: "/logs/rollout-2-r2.jsonl", provider: .codex, tracksTurns: true,
+                   modified: now, now: now)
+        suite.expect(live.sessions(now: now).first { $0.provider == .codex }?.cwd == "/code/proj",
+                     "a live Codex row takes its folder from the rollout, so New can start there")
     }
 }

@@ -46,7 +46,7 @@ struct AgentSessionRow: Equatable, Identifiable {
     let name: String?
     let pid: Int32?
     /// The folder the process runs in, from its record.
-    let cwd: String?
+    var cwd: String?
     /// When the turn began, else when the session did.
     let started: Date
     /// When the current activity began.
@@ -148,9 +148,14 @@ enum AgentSessionBoard {
         }
     }
 
-    /// The board row an approval came from, if the board lists it.
+    /// The board row an approval came from, when its transcript names exactly
+    /// one. A folder label is no proof for a jump: Codex requests carry no
+    /// transcript, and two sessions can share a folder or a folder's name, so
+    /// the card's header then stays without one.
     static func row(for approval: ClaudeApprovalRequest, in rows: [AgentSessionRow]) -> AgentSessionRow? {
-        rows.first { matches($0, approval) }
+        guard let transcript = approval.transcriptPath, !transcript.isEmpty else { return nil }
+        let owners = rows.filter { $0.provider == approval.agent && sessionID($0.id) == sessionID(transcript) }
+        return owners.count == 1 ? owners[0] : nil
     }
 
     /// Whether a click can find the row's process: Claude rows carry a pid,

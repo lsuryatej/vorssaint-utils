@@ -946,6 +946,7 @@ private struct NotchAgentResumeCard: View {
     @State private var agent = AgentProvider.claude
     @State private var prompt = ""
     @State private var outcome: (result: AgentLauncher.Outcome, date: Date)?
+    @State private var launching: UUID?
     @Environment(\.locale) private var locale
 
     private var sessions: [AgentResumableSession] { snapshot.resumable.filter { providers.contains($0.provider) } }
@@ -1024,9 +1025,10 @@ private struct NotchAgentResumeCard: View {
     private var launcher: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
+                let titles = AgentLaunchSupport.folderTitles(folders)
                 NotchMenuButton(title: text.newSession, items: folders.map { path in
-                    NotchMenuItem(title: AgentLogParser.projectName(path), checked: path == folder) { folder = path }
-                }) { menuLabel(AgentLogParser.projectName(folder)) }
+                    NotchMenuItem(title: titles[path] ?? path, checked: path == folder) { folder = path }
+                }) { menuLabel(titles[folder] ?? AgentLogParser.projectName(folder)) }
                 if agents.count > 1 {
                     NotchMenuButton(title: agent.displayName, items: agents.map { option in
                         NotchMenuItem(title: option.displayName, checked: option == agent) { agent = option }
@@ -1071,7 +1073,14 @@ private struct NotchAgentResumeCard: View {
     }
 
     private func launch(_ command: String, in cwd: String) {
-        outcome = (AgentLauncher.run(command, cwd: cwd, board: snapshot.sessions), Date())
+        // A later launch replaces the note; an older one finishing late does not.
+        let id = UUID()
+        launching = id
+        AgentLauncher.run(command, cwd: cwd, board: snapshot.sessions) { result in
+            guard launching == id else { return }
+            launching = nil
+            outcome = (result, Date())
+        }
     }
 }
 

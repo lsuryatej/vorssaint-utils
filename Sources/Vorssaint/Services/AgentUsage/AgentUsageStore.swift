@@ -51,8 +51,16 @@ final class AgentUsageStore {
 
     var live: [AgentLiveSession] { Array(turns.values) }
 
+    /// Codex rows have no process record, so their folder comes from the
+    /// rollout's first lines, read once per rollout like the Resume card's.
     func sessions(now: Date) -> [AgentSessionRow] {
-        AgentSessionBoard.rows(turns: turns, waiting: waiting, recent: recent, registry: processes, now: now)
+        AgentSessionBoard.rows(turns: turns, waiting: waiting, recent: recent, registry: processes, now: now).map { row in
+            guard row.provider == .codex, row.cwd == nil else { return row }
+            var row = row
+            let cwd = folder(of: row.id)
+            row.cwd = cwd.isEmpty ? nil : cwd
+            return row
+        }
     }
 
     func snapshot(plans: [AgentProvider: AgentPlan], providers: Set<AgentProvider>, now: Date,
@@ -71,6 +79,15 @@ final class AgentUsageStore {
     /// it names none. Read once, kept in memory only.
     private var folders: [String: String] = [:]
     var readFolder: (String) -> String = AgentUsageStore.folder(ofLog:)
+    /// The rollouts a running `codex` holds open. Asked only when a Codex
+    /// session could be offered, at most once per reading of the card.
+    var heldRollouts: () -> Set<String> = AgentCodexProcesses.heldRollouts
+
+    private func folder(of file: String) -> String {
+        let cwd = folders[file] ?? readFolder(file)
+        folders[file] = cwd
+        return cwd
+    }
 
     static func folder(ofLog path: String) -> String {
         guard let handle = FileHandle(forReadingAtPath: path) else { return "" }
@@ -96,15 +113,19 @@ final class AgentUsageStore {
         // Claude rows go by session id, Codex rows by log file.
         let shown = Set(board.map(\.id)).union(processes.running)
         var found: [AgentResumableSession] = []
+        // A Codex session idle at its prompt leaves the board after a while
+        // but still runs; a row gone is no proof it ended, the held rollout is.
+        var held: Set<String>?
         for (session, entry) in newest.sorted(by: { records[$0.value.position].date > records[$1.value.position].date }) {
             let record = records[entry.position]
-            // ponytail: a Codex session idle at its prompt past the board's window
-            // still lists; a process scan by folder would tell.
             guard let file = sources[entry.position].first, !shown.contains(session), !shown.contains(file),
                   // A Codex side thread resumes with the thread that started it.
                   record.provider == .claude || !(file as NSString).lastPathComponent.contains("_") else { continue }
-            let cwd = folders[file] ?? readFolder(file)
-            folders[file] = cwd
+            if record.provider == .codex {
+                if held == nil { held = heldRollouts() }
+                if held?.contains((file as NSString).standardizingPath) == true { continue }
+            }
+            let cwd = folder(of: file)
             guard !cwd.isEmpty else { continue }
             found.append(AgentResumableSession(id: session, provider: record.provider, project: record.project,
                                                cwd: cwd, lastActivity: record.date, cost: entry.cost))

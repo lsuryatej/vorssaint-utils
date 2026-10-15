@@ -75,7 +75,7 @@ enum AgentLaunchSupport {
         case .claude: return "claude"
         case .codex: return "codex"
         // ponytail: OpenCode keeps its sessions in a database; add `opencode --session` once tried.
-        case .opencode: return nil
+        case .opencode, .copilot: return nil
         }
     }
 
@@ -86,12 +86,27 @@ enum AgentLaunchSupport {
         return "cd \(quote(session.cwd)) && \(tool) \(resume) \(quote(session.id))"
     }
 
-    /// `cd '<cwd>' && claude '<prompt>'`. The field is one line, and a pasted
-    /// line break would send the command early.
+    /// `cd '<cwd>' && claude -- '<prompt>'`. The field is one line, and a
+    /// pasted line break would send the command early. Quoting keeps the
+    /// shell out of the prompt but not the tool: `--` ends its options, so a
+    /// prompt such as `--help` or `-p x` is sent as text, never read as a flag.
     static func startCommand(provider: AgentProvider, cwd: String, prompt: String) -> String? {
         guard let tool = tool(provider) else { return nil }
         let line = prompt.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
-        return "cd \(quote(cwd)) && \(tool)" + (line.isEmpty ? "" : " \(quote(line))")
+        return "cd \(quote(cwd)) && \(tool)" + (line.isEmpty ? "" : " -- \(quote(line))")
+    }
+
+    /// Menu titles for launch folders: the project's name, unless another
+    /// folder shares it, as a repository and its Claude worktrees do; those
+    /// show their path from the home folder so each entry says where it runs.
+    static func folderTitles(_ paths: [String], home: String = NSHomeDirectory()) -> [String: String] {
+        let names = Dictionary(paths.map { ($0, AgentLogParser.projectName($0)) }, uniquingKeysWith: { first, _ in first })
+        let counts = names.values.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        return names.reduce(into: [String: String]()) { titles, entry in
+            let (path, name) = entry
+            guard counts[name, default: 0] > 1 else { titles[path] = name; return }
+            titles[path] = path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+        }
     }
 
     /// The terminal chosen in Settings while it is installed, else the one the
