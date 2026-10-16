@@ -25,6 +25,7 @@ struct NotchAgentsSettingsControls: View {
     @AppStorage(DefaultsKey.notchAgentsDailyBudget) private var dailyBudget = 0.0
     @AppStorage(DefaultsKey.notchAgentsPriceUpdates) private var priceUpdates = true
     @AppStorage(DefaultsKey.notchAgentsOpenIn) private var openIn = ""
+    @AppStorage(DefaultsKey.notchAgentsSteps) private var steps = false
     @AppStorage(DefaultsKey.notchAgentApprovalsEnabled) private var approvalsEnabled = true
     @AppStorage(AppFeature.notchAgentApprovals.availabilityKey) private var approvalsInstalled = false
     @State private var hookStatus: [AgentProvider: ClaudeHookStatus] = [:]
@@ -117,6 +118,9 @@ struct NotchAgentsSettingsControls: View {
                                       provider: claude ? .claude : codex ? .codex : opencode ? .opencode : .copilot)
                     .padding(.leading, settingsRowTextInset)
             }
+            switchRow(NotchAgentCard.steps.symbol, text.stepsSetting, isOn: $steps)
+            Text(text.stepsFootnote).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             Divider()
             Text(text.alerts).font(.subheadline.weight(.medium))
@@ -185,7 +189,8 @@ struct NotchAgentsSettingsControls: View {
         // Cards and agents set the page's height, and the live reading the
         // closed island's width, which the island follows.
         .onChange(of: [cardOrder, hiddenCards, String(claude), String(codex), String(opencode), String(copilot),
-                       String(liveActivity), readout, limitDisplay, limitFocus, String(approvalsEnabled)]) { _, _ in
+                       String(liveActivity), readout, limitDisplay, limitFocus, String(approvalsEnabled),
+                       String(steps)]) { _, _ in
             NotchService.shared.syncWithPreferences()
         }
     }

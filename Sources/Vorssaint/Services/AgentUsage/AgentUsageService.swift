@@ -120,6 +120,21 @@ final class AgentUsageService: ObservableObject {
             resume()
         }
         syncPrices()
+        syncSteps()
+    }
+
+    /// Steps start with the next tool call read; turning them off forgets
+    /// every step held.
+    private func syncSteps() {
+        let wanted = NotchAgentSupport.showsSteps()
+        queue.async { [self] in
+            guard AgentLogParser.readsSteps != wanted else { return }
+            AgentLogParser.readsSteps = wanted
+            if !wanted {
+                store.dropSteps()
+                schedulePublish()
+            }
+        }
     }
 
     /// Stops reading while the island is away, as with the display asleep or

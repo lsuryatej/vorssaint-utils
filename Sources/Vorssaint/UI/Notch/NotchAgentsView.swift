@@ -108,6 +108,8 @@ struct NotchAgentsView: View {
             NotchAgentActivityCard(snapshot: snapshot, text: text)
         case .resets:
             NotchAgentResetsCard(now: now, text: text)
+        case .steps:
+            NotchAgentStepsCard(snapshot: snapshot, providers: providers, text: text)
         }
     }
 }
@@ -520,6 +522,8 @@ private struct NotchAgentLiveCard: View {
         let title = session.name ?? (session.project.isEmpty ? session.provider.displayName : session.project)
         let detail = [AgentPricing.displayName(session.model), session.cost > 0 ? AgentFormat.cost(session.cost) : ""]
             .filter { !$0.isEmpty }.joined(separator: " · ")
+        // While it works, what it is doing says more than its model.
+        let step = state == .working ? session.steps.last.flatMap { now.timeIntervalSince($0.date) < 120 ? $0 : nil } : nil
         return HStack(spacing: 4) {
             NotchAgentGlyph(provider: session.provider, size: 9, working: state == .working)
             Text(title)
@@ -527,7 +531,9 @@ private struct NotchAgentLiveCard: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .layoutPriority(1)
-            if !detail.isEmpty {
+            if let step {
+                NotchAgentStepLabel(step: step, size: 9.5)
+            } else if !detail.isEmpty {
                 Text(detail)
                     .font(.system(size: 9.5))
                     .foregroundStyle(.secondary)

@@ -7,7 +7,7 @@ import Foundation
 /// The cards the AI page can show, in the order a person arranges them. Raw
 /// values are stored in the saved order, so cases are never renamed.
 enum NotchAgentCard: String, CaseIterable, Identifiable {
-    case limits, spend, live, resume, trend, models, projects, activity, resets
+    case limits, spend, live, resume, trend, models, projects, activity, resets, steps
 
     var id: String { rawValue }
 
@@ -17,6 +17,7 @@ enum NotchAgentCard: String, CaseIterable, Identifiable {
         case .spend: return "dollarsign.circle"
         case .live: return "waveform.path.ecg"
         case .resume: return "clock.arrow.circlepath"
+        case .steps: return "list.bullet.rectangle"
         case .trend: return "chart.bar.xaxis"
         case .models: return "cpu"
         case .projects: return "folder"
@@ -26,7 +27,7 @@ enum NotchAgentCard: String, CaseIterable, Identifiable {
     }
 
     /// Charts need the island's width; everything else pairs up.
-    var fullWidth: Bool { self == .trend || self == .activity }
+    var fullWidth: Bool { self == .trend || self == .activity || self == .steps }
 }
 
 /// What the closed island shows beside the camera while an agent works.
@@ -105,9 +106,15 @@ enum NotchAgentSupport {
             .split(separator: ",").compactMap { NotchAgentCard(rawValue: String($0)) })
     }
 
+    /// Steps shows only while it is on; it reads more than the counters.
     static func cards(in defaults: UserDefaults = .standard) -> [NotchAgentCard] {
         let hidden = hiddenCards(in: defaults)
-        return orderedCards(in: defaults).filter { !hidden.contains($0) }
+        let steps = showsSteps(in: defaults)
+        return orderedCards(in: defaults).filter { !hidden.contains($0) && ($0 != .steps || steps) }
+    }
+
+    static func showsSteps(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: DefaultsKey.notchAgentsSteps)
     }
 
     /// The terminal sessions start in; empty leaves it to the app.

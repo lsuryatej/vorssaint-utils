@@ -878,6 +878,8 @@ enum DefaultsKey {
     static let notchAgentsPriceUpdates = "notchAgentsPriceUpdates"
     // The terminal the Resume card starts sessions in; empty picks the newest session's.
     static let notchAgentsOpenIn = "notchAgentsOpenIn"
+    // Each tool call a session makes, read from its log while on; memory only.
+    static let notchAgentsSteps = "notchAgentsSteps"
     static let notchAgentApprovalsEnabled = "notchAgentApprovalsEnabled"
     static let notchEnabled = "notchEnabled"
     static let notchDisplay = "notchDisplay"
@@ -1461,6 +1463,7 @@ enum Defaults {
         DefaultsKey.notchAgentsDailyBudget: 0.0,
         DefaultsKey.notchAgentsPriceUpdates: true,
         DefaultsKey.notchAgentsOpenIn: "",
+        DefaultsKey.notchAgentsSteps: false,
         DefaultsKey.notchAgentApprovalsEnabled: true,
         DefaultsKey.notchLyricsEnabled: true,
         DefaultsKey.notchLyricsOnline: false,

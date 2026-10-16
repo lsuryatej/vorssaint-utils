@@ -27,6 +27,8 @@ enum AgentLogEntry: Equatable {
     /// `failed` marks an error written in place of a reply, not an interruption.
     case turnEnded(Date?, completed: Bool, duration: TimeInterval?, failed: Bool = false)
     case reset(Date)
+    /// A tool call the agent made, read only while Steps is on.
+    case step(AgentStep)
 }
 
 /// Per-file context carried from line to line.
@@ -117,6 +119,12 @@ enum AgentLogParser {
     private static func object(_ line: Data) -> [String: Any]? {
         (try? JSONSerialization.jsonObject(with: line)) as? [String: Any]
     }
+
+    /// Whether tool calls become steps. Written by the usage service on its
+    /// queue, the only one that parses.
+    static var readsSteps = false
+    /// Tool calls older than this when read are history, not steps.
+    static let stepHorizon: TimeInterval = 3600
 
     // MARK: Claude Code
 
@@ -215,6 +223,13 @@ enum AgentLogParser {
             for block in message["content"] as? [[String: Any]] ?? []
             where block["type"] as? String == "tool_use" && block["name"] as? String == "Bash" {
                 if let id = block["id"] as? String { state.runningCommands.insert(id) }
+            }
+            // Steps are for what happens now: history read at launch stays
+            // counters only, and costs no diffs.
+            if readsSteps, now.timeIntervalSince(date) < stepHorizon {
+                for block in message["content"] as? [[String: Any]] ?? [] {
+                    if let step = AgentStepSupport.claudeStep(block, date: date) { entries.append(.step(step)) }
+                }
             }
             // Ahead of the usage, so a reply that opens the turn again, as
             // after an offline end, counts toward it.

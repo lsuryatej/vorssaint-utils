@@ -287,7 +287,7 @@ enum AgentUsageArchiveTests {
             ("AgentUsageArchive.Contents", labels(contents), ["providers", "store", "cursors"]),
             ("AgentUsageStore", labels(first),
              ["records", "billables", "sources", "index", "summary", "limits", "codexPlan", "codexPlanObserved",
-              "turns", "waiting", "recent", "processes", "registered", "settled", "replies", "reportsTransitions", "folders",
+              "turns", "waiting", "recent", "processes", "registered", "settled", "replies", "steps", "reportsTransitions", "folders",
               "readFolder", "heldRollouts"]),
             ("AgentUsageStore.Saved", labels(sample),
              ["records", "limits", "codexPlan", "codexPlanObserved", "turns", "waiting"]),

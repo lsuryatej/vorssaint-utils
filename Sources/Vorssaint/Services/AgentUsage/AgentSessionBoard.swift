@@ -55,6 +55,8 @@ struct AgentSessionRow: Equatable, Identifiable {
     let tokens: AgentTokens
     let cost: Double
     let activity: AgentSessionActivity
+    /// The newest tool calls, oldest first, while Steps is on.
+    var steps: [AgentStep] = []
 }
 
 enum AgentSessionState: Equatable {

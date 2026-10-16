@@ -33,6 +33,9 @@ final class AgentUsageStore {
     private var settled: [String: Date] = [:]
     /// When a model last replied, by the log of the turn it counts toward.
     private var replies: [String: Date] = [:]
+    /// The newest tool calls of each session, by log file, while Steps is
+    /// on. Held in memory only: never saved, and dropped with the session.
+    private(set) var steps: [String: [AgentStep]] = [:]
     /// Off while the logs are first read, so history never replays as news.
     var reportsTransitions = false
     /// A turn that ended longer ago than this is history found late, like a
@@ -51,12 +54,20 @@ final class AgentUsageStore {
 
     var live: [AgentLiveSession] { Array(turns.values) }
 
+    /// Turning Steps off forgets every step at once.
+    func dropSteps() { steps = [:] }
+
     /// Codex rows have no process record, so their folder comes from the
     /// rollout's first lines, read once per rollout like the Resume card's.
     func sessions(now: Date) -> [AgentSessionRow] {
-        AgentSessionBoard.rows(turns: turns, waiting: waiting, recent: recent, registry: processes, now: now).map { row in
-            guard row.provider == .codex, row.cwd == nil else { return row }
+        // Claude rows go by session id, the name of their log; Codex rows by log.
+        let stepsByRow = Dictionary(steps.map { file, steps in
+            (file.hasSuffix(".jsonl") && !file.contains("/.codex/") ? AgentSessionBoard.sessionID(file) : file, steps)
+        }, uniquingKeysWith: { $0.count >= $1.count ? $0 : $1 })
+        return AgentSessionBoard.rows(turns: turns, waiting: waiting, recent: recent, registry: processes, now: now).map { row in
             var row = row
+            row.steps = stepsByRow[row.id] ?? []
+            guard row.provider == .codex, row.cwd == nil else { return row }
             let cwd = folder(of: row.id)
             row.cwd = cwd.isEmpty ? nil : cwd
             return row
@@ -221,6 +232,9 @@ final class AgentUsageStore {
             case .reset:
                 let baseFile = file.components(separatedBy: "#").first ?? file
                 forget(file: baseFile)
+            case .step(let step):
+                guard tracksTurns else { continue }
+                steps[file] = AgentStepSupport.merge(step, into: steps[file] ?? [])
             }
         }
         return events
@@ -231,6 +245,7 @@ final class AgentUsageStore {
     @discardableResult
     func forget(file: String) -> Bool {
         waiting[file] = nil
+        steps = steps.filter { $0.key != file && !$0.key.hasPrefix(file + "#") }
         settled = settled.filter { $0.key != file && !$0.key.hasPrefix(file + "#") }
         recent = recent.filter { $0.key != file && !$0.key.hasPrefix(file + "#") }
         var removed = turns.removeValue(forKey: file) != nil
@@ -388,6 +403,7 @@ final class AgentUsageStore {
         waiting = waiting.filter { now.timeIntervalSince($0.value.lastActivity) < Self.resumeWindow(for: $0.value.provider) }
         replies = replies.filter { turns[$0.key] != nil || waiting[$0.key] != nil }
         recent = recent.filter { now.timeIntervalSince($0.value.ended) < AgentSessionBoard.codexWindow }
+        steps = steps.filter { turns[$0.key] != nil || waiting[$0.key] != nil || recent[$0.key] != nil }
     }
 
     /// A turn whose last step ended expecting more, with nothing after it

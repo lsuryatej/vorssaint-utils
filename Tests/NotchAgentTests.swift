@@ -39,6 +39,7 @@ enum NotchAgentTests {
         formatting(suite)
         AgentUsageEventDeliveryTests.run(suite)
         AgentSessionBoardTests.run(suite)
+        AgentStepTests.run(suite)
         NotchAgentAnimationTests.run { suite.expect($0, $1) }
     }
 
