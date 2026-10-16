@@ -534,13 +534,17 @@ private struct NotchAgentLiveCard: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
+            // The state and its time keep their full width; a long session
+            // name gives way first, after the model.
             NotchAgentChip(text: text.state(state), tint: tint(state, provider: session.provider))
+                .fixedSize()
             Text(state == .working ? AgentFormat.clock(now.timeIntervalSince(session.started))
                     : session.since.formatted(.relative(presentation: .named, unitsStyle: .abbreviated).locale(locale)))
                 .font(.system(size: 11, weight: .medium))
                 .monospacedDigit()
                 .foregroundStyle(state == .working ? session.provider.tint : .secondary)
                 .lineLimit(1)
+                .fixedSize()
         }
         .frame(height: NotchAgentSupport.boardRowHeight - 4)
         .help([title, session.project, text.state(state), text.tokens(AgentFormat.tokens(session.tokens.total)),
